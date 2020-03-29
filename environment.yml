@@ -1,0 +1,6 @@
+name: covid-19_env
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - pandas
