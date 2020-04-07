@@ -491,55 +491,15 @@ def modify_doc(doc):
     layout = row(controls, plot)
     
     doc.add_root(layout)
-    
-# Set up an application
-handler = FunctionHandler(modify_doc)
-app = Application(handler)
 
-os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8889'
+if __name__ == '__main__':
+    # Set up an application
+    handler = FunctionHandler(modify_doc)
+    app = Application(handler)
 
-output_notebook()
+    os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8889'
 
-show(app)
-
-
-# In[18]:
-
-
-import pathlib
-HTML_DIR = pathlib.Path('public_html')
-GRAPHS_DIR = HTML_DIR / 'covid19_graph'
-
-if not GRAPHS_DIR.is_dir():
-    GRAPHS_DIR.mkdir(parents=True)
-
-from bokeh.plotting import figure, output_file, output_notebook, show
-
-# display output inline in notebook
-output_notebook()
-
-# # output to static HTML file
-output_file(GRAPHS_DIR / "deaths_million_since_1.html")
-
-# # output to static HTML file
-#output_file(GRAPHS_DIR / 'deaths_million_since_1.html')
-plot = figure(title="Covid 19 - deaths since 1/million",
-           x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
-           y_axis_type='log')
-
-# Want to enable this, but it makes graphs not display at all on iphone (chrome + safari)
-#plot.sizing_mode = 'scale_height'
-
-for i, (label, data) in enumerate(to_graph_by_since):
-    plot.line(x='days', y='deaths_per_million', source=data,
-           line_width=3, color=kelly_colors[i], legend_label=label)
-
-plot.legend.location = "top_left"
-
-# show the results
-show(plot)
-# In[ ]:
-
-
-
-
+    show(app)
+else:
+    from bokeh.plotting import curdoc
+    modify_doc(curdoc())
