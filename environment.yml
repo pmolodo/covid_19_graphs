@@ -1,6 +1,4 @@
-name: covid-19_env
-channels:
-  - conda-forge
+name: covid19graphs
 dependencies:
   - numpy
   - pandas
