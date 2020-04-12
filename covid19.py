@@ -416,6 +416,8 @@ def modify_doc(doc):
         Country('Italy'),
     ]
     
+    to_color = {item: kelly_colors[i % len(kelly_colors)] for i, item in enumerate(all_display_items)}
+
     def make_dataset(items_to_plot):
         to_graph_by_date = []
         for item in items_to_plot:
@@ -425,21 +427,23 @@ def modify_doc(doc):
                 state = abbrev_to_state[state_abbrev]
                 county_data = counties_data[(counties_data.state == state) & (counties_data.county == county)]
                 assert len(county_data) > 0
-                to_graph_by_date.append((label, county_data))
+                to_append = (label, county_data)
 
             elif isinstance(item, State):
                 state = item.name
                 state_data = states_data[states_data.state == state]
                 assert len(state_data) > 0
-                to_graph_by_date.append((label, state_data))
+                to_append = (label, state_data)
 
             elif isinstance(item, Country):
                 country = item.name
                 country_data = country_deaths_data[country_deaths_data.country == country]
                 assert len(country_data) > 0
-                to_graph_by_date.append((label, country_data))
+                to_append = (label, country_data)
             else:
                 raise TypeError(item)
+            to_append += (to_color[item],)
+            to_graph_by_date.append(to_append)
 
         def get_data_since(data, condition_func):
             condition = condition_func(data)
@@ -453,8 +457,8 @@ def modify_doc(doc):
 
         to_graph_by_since = []
 
-        for label, data in to_graph_by_date:
-            to_graph_by_since.append((label, get_data_since(data, deaths_per_mill_greater_1)))
+        for label, data, color in to_graph_by_date:
+            to_graph_by_since.append((label, get_data_since(data, deaths_per_mill_greater_1), color))
         return to_graph_by_since
     
     def make_plot(data):
@@ -465,9 +469,9 @@ def modify_doc(doc):
         # Want to enable this, but it makes graphs not display at all on iphone (chrome + safari)
         #plot.sizing_mode = 'scale_height'
 
-        for i, (label, data) in enumerate(data):
+        for label, data, color in data:
             plot.line(x='days', y='deaths_per_million', source=data,
-                   line_width=3, color=kelly_colors[i], legend_label=label)
+                   line_width=3, color=color, legend_label=label)
 
         plot.legend.location = "top_left"
         return plot
