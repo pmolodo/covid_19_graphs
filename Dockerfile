@@ -15,6 +15,7 @@ ENV CONDA ${CONDA_DIR}/condabin/conda
 WORKDIR /usr/src/covid19
 EXPOSE 80
 COPY ./environment.yml .
+ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80
 RUN ${CONDA} env create -f environment.yml
 
 COPY . .
