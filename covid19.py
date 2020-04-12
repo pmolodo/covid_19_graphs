@@ -293,18 +293,18 @@ for county, state in counties_to_graph:
     assert len(county_data) > 0
     label = ', '.join([county, state_abbrev])
     to_graph_by_date.append((label, county_data))
-    
+
 for state in states_to_graph:
     state_abbrev = state_to_abbrev[state]
     state_data = states_data[states_data.state == state]
     assert len(state_data) > 0
     to_graph_by_date.append((state_abbrev, state_data))
-    
+
 for country in countries_to_graph:
     country_data = country_deaths_data[country_deaths_data.country == country]
     assert len(country_data) > 0
     to_graph_by_date.append((country, country_data))
-        
+
 #counties_selected_data[('Los Angeles', 'CA')]
 print(to_graph_by_date[0][0])
 to_graph_by_date[0][1]
@@ -393,7 +393,7 @@ from collections import namedtuple
 class CommaJoinedTuple(object):
     def __str__(self):
         return ', '.join(str(x) for x in self)
-    
+
 class Country(CommaJoinedTuple, namedtuple('CountryBase', ['name'])):
     pass
 
@@ -415,7 +415,7 @@ def modify_doc(doc):
         State('New York'),
         Country('Italy'),
     ]
-    
+
     to_color = {item: kelly_colors[i % len(kelly_colors)] for i, item in enumerate(all_display_items)}
 
     def make_dataset(items_to_plot):
@@ -460,7 +460,7 @@ def modify_doc(doc):
         for label, data, color in to_graph_by_date:
             to_graph_by_since.append((label, get_data_since(data, deaths_per_mill_greater_1), color))
         return to_graph_by_since
-    
+
     def make_plot(data):
         plot = figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
@@ -475,25 +475,25 @@ def modify_doc(doc):
 
         plot.legend.location = "top_left"
         return plot
-    
+
     def update(attr, old, new):
         display_items = [all_display_items[i] for i in selection.active]
         data = make_dataset(display_items)
         plot = make_plot(data)
         layout.children[1] = plot
-        
+
     selection = CheckboxGroup(labels=[str(x) for x in all_display_items],
                               active=list(range(len(all_display_items))))
     selection.on_change('active', update)
 
     controls = Column(selection)
-    
+
     data = make_dataset(all_display_items)
     plot = make_plot(data)
-    
+
     # Create a row layout
     layout = row(controls, plot)
-    
+
     doc.add_root(layout)
 
 if __name__ == '__main__':
