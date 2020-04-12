@@ -501,7 +501,8 @@ if __name__ == '__main__':
     handler = FunctionHandler(modify_doc)
     app = Application(handler)
 
-    os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8889'
+    # add something like this to the environment of a server
+    #os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8888,servername.com:80'
 
     show(app)
 else:
