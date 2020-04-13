@@ -410,6 +410,7 @@ def modify_doc(doc):
         County('Orange', 'CA'),
         County('Middlesex', 'MA'),
         County('New York City', 'NY'),
+        County('Allegheny', 'PA'),
         State('California'),
         State('Massachusetts'),
         State('New York'),
