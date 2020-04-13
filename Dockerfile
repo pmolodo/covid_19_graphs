@@ -1,3 +1,6 @@
+# From host, run:
+# docker run -d -p 80:80 --restart always elrond79/covid19
+
 FROM centos:8.1.1911
 
 
@@ -15,9 +18,9 @@ ENV CONDA ${CONDA_DIR}/condabin/conda
 WORKDIR /usr/src/covid19
 EXPOSE 80
 COPY ./environment.yml .
-ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80
 RUN ${CONDA} env create -f environment.yml
 
 COPY . .
+ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80
 CMD ["./run_server.bash"]
 
