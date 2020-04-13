@@ -405,6 +405,8 @@ class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
 
 
 def modify_doc(doc):
+    doc.tile = "Covid-19 Graphs"
+
     all_display_items = [
         County('Los Angeles', 'CA'),
         County('Orange', 'CA'),
