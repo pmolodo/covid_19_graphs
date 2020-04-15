@@ -4,15 +4,22 @@
 # - https://towardsdatascience.com/data-visualization-with-bokeh-in-python-part-ii-interactions-a4cf994e2512
 # - https://realpython.com/lessons/using-groupfilter-and-cdsview/
 
-# In[1]:
-
-
 import pandas
+
 import math
+import os
+
+from bokeh.application import Application
+from bokeh.application.handlers import FunctionHandler
+from bokeh.layouts import row, column
+from bokeh.models import Button, Div, Panel, Select, Spacer
+from bokeh.models.widgets import CheckboxGroup, Tabs
+from bokeh.plotting import figure, output_notebook, show
+
+from collections import OrderedDict, namedtuple
 
 
-# In[2]:
-
+# Constant mappings
 
 state_to_abbrev = {
     'Alabama': 'AL',
@@ -78,9 +85,8 @@ state_to_abbrev = {
 
 abbrev_to_state = dict((abbrev, state) for (state, abbrev) in state_to_abbrev.items())
 
-
-# In[3]:
-
+################################################################################
+# Get county population data
 
 # County population data from us census
 #     https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
@@ -95,20 +101,14 @@ county_pop_data = all_pop_data[all_pop_data.SUMLEV == 50][
 county_pop_data['fips'] = county_pop_data.STATE * 1000 + county_pop_data.COUNTY
 county_pop_data[county_pop_data.fips == 6037]
 
-
-# In[4]:
-
-
 county_pop_data = county_pop_data[['fips', 'POPESTIMATE2019']]
 county_pop_data = county_pop_data.rename(columns={
     'POPESTIMATE2019': 'population',
 })
 county_pop_data = county_pop_data.set_index('fips')
-county_pop_data[county_pop_data.index == 6037]
 
-
-# In[5]:
-
+################################################################################
+# Get state population data
 
 state_pop_data = all_pop_data[all_pop_data.SUMLEV == 40][
     ['STATE', 'STNAME', 'POPESTIMATE2019']
@@ -119,19 +119,15 @@ state_pop_data = state_pop_data.rename(columns={
     'STNAME': 'state',
 })
 state_pop_data = state_pop_data.set_index('fips')
-state_pop_data[state_pop_data.index == 6]
 
-
-# In[6]:
-
+################################################################################
+# Get county Covid-19 data
 
 nytimes_counties_url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
 counties_raw_data = pandas.read_csv(nytimes_counties_url, parse_dates=['date'])
 # fips codes are left out for, ie, New York City, and "Unknown" groupings for states
 
-
-# In[7]:
-
+# Fixup New York City
 
 # New York city is special - the city is divided into 5 counties (that's backward!)
 # It's obviously so weird that even the New York Times doesn't abide by this, and just lists
@@ -160,13 +156,8 @@ county_pop_data.loc[NYCITY_FIPS] = nycity_pop
 #nycity_data.fips = NYCITY_FIPS
 
 counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = NYCITY_FIPS
-counties_raw_data[counties_raw_data.county == 'New York City']
 
-county_pop_data[county_pop_data.index == NYCITY_FIPS]
-
-
-# In[8]:
-
+# Process county covid data
 
 counties_data = counties_raw_data[counties_raw_data.fips.notna()]
 counties_data = counties_data.astype({'fips': int})
@@ -185,8 +176,8 @@ counties_data['cases_per_million'] = counties_data.cases / (counties_data.popula
 counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
 
 
-# In[9]:
-
+################################################################################
+# Get state Covid-19 data
 
 nytimes_states_url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv'
 states_raw_data = pandas.read_csv(nytimes_states_url, parse_dates=['date'])
@@ -203,11 +194,6 @@ states_data = pandas.merge(states_data, state_pop_data['population'], how='inner
                            left_on='fips', right_on=state_pop_data.index)
 states_data['cases_per_million'] = states_data.cases / (states_data.population / 1e6)
 states_data['deaths_per_million'] = states_data.deaths / (states_data.population / 1e6)
-states_data.head()
-
-
-# In[10]:
-
 
 # Confirm all states in nytimes data have abbreviations
 counties_states = set(counties_data.state.unique())
@@ -217,10 +203,9 @@ states_states = set(states_data.state.unique())
 assert len(states_states - abbrev_states) == 0
 
 
-# In[11]:
+################################################################################
+# Get country population data
 
-
-# get country population data
 # from https://population.un.org/wpp/Download/Standard/CSV/
 un_pop_raw_data = pandas.read_csv('WPP2019_TotalPopulationBySex.csv')
 un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
@@ -232,13 +217,10 @@ un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'po
 # un_pop_data is in thousands
 un_pop_data['population'] *= 1000
 un_pop_data = un_pop_data.astype({'population': int})
-un_pop_data
 
 
-# In[12]:
-
-
-# get country deaths data
+################################################################################
+# Get country deaths data
 
 JHU_global_deaths_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
 country_deaths_raw_data = pandas.read_csv(JHU_global_deaths_url)
@@ -256,92 +238,10 @@ country_deaths_data.head()
 country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[['country', 'population']], how='inner',
                            left_on='country', right_on='country')
 country_deaths_data['deaths_per_million'] = country_deaths_data.deaths / (country_deaths_data.population / 1e6)
-country_deaths_data[(country_deaths_data.country == 'Italy') & country_deaths_data.deaths > 0]
 
 
-# In[ ]:
-
-
-
-
-
-# In[13]:
-
-
-counties_to_graph = [
-    ('Los Angeles', 'California'),
-    ('Orange', 'California'),
-    ('Middlesex', 'Massachusetts'),
-    ('New York City', 'New York'),
-]
-
-states_to_graph = [
-    'California',
-    'Massachusetts',
-    'New York',
-]
-
-countries_to_graph = [
-    'Italy',
-]
-
-to_graph_by_date = []
-
-for county, state in counties_to_graph:
-    state_abbrev = state_to_abbrev[state]
-    county_data = counties_data[(counties_data.state == state) & (counties_data.county == county)]
-    assert len(county_data) > 0
-    label = ', '.join([county, state_abbrev])
-    to_graph_by_date.append((label, county_data))
-
-for state in states_to_graph:
-    state_abbrev = state_to_abbrev[state]
-    state_data = states_data[states_data.state == state]
-    assert len(state_data) > 0
-    to_graph_by_date.append((state_abbrev, state_data))
-
-for country in countries_to_graph:
-    country_data = country_deaths_data[country_deaths_data.country == country]
-    assert len(country_data) > 0
-    to_graph_by_date.append((country, country_data))
-
-#counties_selected_data[('Los Angeles', 'CA')]
-print(to_graph_by_date[0][0])
-to_graph_by_date[0][1]
-
-
-# In[14]:
-
-
-def get_data_since(data, condition_func):
-    condition = condition_func(data)
-    since_data = data[condition].reset_index(drop=True)
-    day0 = since_data.date.min()
-    since_data['days'] = (since_data.date - day0).apply(lambda x: x.days)
-    return since_data
-
-def deaths_per_mill_greater_1(data):
-    return data.deaths_per_million >= 1.0
-
-to_graph_by_since = []
-
-for label, data in to_graph_by_date:
-    to_graph_by_since.append((label, get_data_since(data, deaths_per_mill_greater_1)))
-
-print(to_graph_by_since[5][0])
-to_graph_by_since[5][1]
-
-
-# In[ ]:
-
-
-
-
-
-# In[15]:
-
-
-from collections import OrderedDict
+################################################################################
+# Colors
 
 # Thanks to Kenneth Kelly + Ohad Schneider:
 # https://stackoverflow.com/a/13781114/920545
@@ -373,22 +273,9 @@ kelly_colors_dict = OrderedDict(
 kelly_colors = list(kelly_colors_dict.values())
 
 
-# In[25]:
+################################################################################
+# Country / State / County data types
 
-
-import os
-
-from bokeh.models import Button, Div, Panel, Select, Spacer
-from bokeh.models.widgets import CheckboxGroup, Tabs
-
-from bokeh.layouts import row, column
-
-from bokeh.application.handlers import FunctionHandler
-from bokeh.application import Application
-
-from bokeh.plotting import figure, output_notebook, show
-
-from collections import namedtuple
 
 class CommaJoinedTuple(object):
     def __str__(self):
@@ -414,6 +301,9 @@ class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
         return self
 
 SELECT_STATE = "-- Select State --"
+
+################################################################################
+# Bokeh application logic
 
 def modify_doc(doc):
     doc.title = "Covid-19 Graphs"
