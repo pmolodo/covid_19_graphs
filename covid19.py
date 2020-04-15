@@ -12,7 +12,7 @@ import os
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
 from bokeh.layouts import row, column
-from bokeh.models import Button, Div, Panel, Select, Spacer
+from bokeh.models import Button, Div, Panel, Paragraph, Select, Spacer
 from bokeh.models.widgets import CheckboxGroup, Tabs
 from bokeh.plotting import figure, output_notebook, show
 
@@ -363,19 +363,19 @@ def modify_doc(doc):
                 county, state_abbrev = item
                 state = abbrev_to_state[state_abbrev]
                 county_data = counties_data[(counties_data.state == state) & (counties_data.county == county)]
-                assert len(county_data) > 0
+                assert len(county_data) > 0, f"no county data for {county}, {state}"
                 to_append = (label, county_data)
 
             elif isinstance(item, State):
                 state = item.name
                 state_data = states_data[states_data.state == state]
-                assert len(state_data) > 0
+                assert len(state_data) > 0, f"no state data for {state}"
                 to_append = (label, state_data)
 
             elif isinstance(item, Country):
                 country = item.name
                 country_data = country_deaths_data[country_deaths_data.country == country]
-                assert len(country_data) > 0
+                assert len(country_data) > 0, f"no country data for {country}"
                 to_append = (label, country_data)
             else:
                 raise TypeError(item)
@@ -439,15 +439,18 @@ def modify_doc(doc):
         ]
         update_plot(None, None, None)
 
-    all_countries = sorted(country_deaths_data.country.unique())
-    pick_country_dropdown = Select(title="Country:", value="United States",
+    all_countries = sorted(
+        country_deaths_data[country_deaths_data.deaths_per_million >= 1.0]
+            .country.unique())
+    pick_country_dropdown = Select(title="Country:", value="Spain",
                                    options=all_countries)
     add_country_button = Button(label="Add Country")
     def click_add_country():
         add_item_and_update(Country(pick_country_dropdown.value))
     add_country_button.on_click(click_add_country)
 
-    all_states = sorted(states_data.state.unique())
+    all_states = sorted(
+        states_data[states_data.deaths_per_million >= 1.0].state.unique())
     pick_state_dropdown = Select(title="US State:", value="California",
                                  options=all_states)
     add_state_button = Button(label="Add State")
@@ -459,11 +462,19 @@ def modify_doc(doc):
                                   options=[SELECT_STATE])
     add_county_button = Button(label="Add County")
 
+    since_note = Paragraph(text="Note: graphable entities are filtered to"
+                           " only those that meet the minimum criteria")
+
+    # TODO: get US, Australia working
+    #   Get county picking working
+
     add_item_panel = column(pick_country_dropdown, add_country_button,
                             spacer,
                             pick_state_dropdown, add_state_button,
                             spacer,
-                            pick_county_dropdown, add_county_button)
+#                            pick_county_dropdown, add_county_button,
+#                            spacer,
+                            since_note)
 
     controls = column(visibility_selection,
                       Div(text="<hr width=100>"),
