@@ -378,10 +378,10 @@ kelly_colors = list(kelly_colors_dict.values())
 
 import os
 
-from bokeh.models import Column, Panel #, CategoricalColorMapper, HoverTool, ColumnDataSource
-from bokeh.models.widgets import CheckboxGroup, Tabs #, Slider, RangeSlider
+from bokeh.models import Button, Div, Panel, Select, Spacer
+from bokeh.models.widgets import CheckboxGroup, Tabs
 
-from bokeh.layouts import row
+from bokeh.layouts import row, column
 
 from bokeh.application.handlers import FunctionHandler
 from bokeh.application import Application
@@ -398,28 +398,72 @@ class Country(CommaJoinedTuple, namedtuple('CountryBase', ['name'])):
     pass
 
 class State(CommaJoinedTuple, namedtuple('State', ['name'])):
-    pass
+    def __new__(cls, *args, **kwargs):
+        # force non-abbreviated name
+        self = super().__new__(cls, *args, **kwargs)
+        if self.name in abbrev_to_state:
+            self = State(abbrev_to_state[self.name])
+        return self
 
 class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
-    pass
+    def __new__(cls, *args, **kwargs):
+        # force abbreviated state name
+        self = super().__new__(cls, *args, **kwargs)
+        if self.state in state_to_abbrev:
+            self = County(self.name, state_to_abbrev[self.state])
+        return self
 
+SELECT_STATE = "-- Select State --"
 
 def modify_doc(doc):
     doc.title = "Covid-19 Graphs"
 
-    all_display_items = [
+    # initial items to graph
+    display_countries = set([
+        Country('Italy'),
+    ])
+    display_states = set([
+        State('California'),
+        State('Massachusetts'),
+        State('New York'),
+    ])
+    display_counties = set([
         County('Los Angeles', 'CA'),
         County('Orange', 'CA'),
         County('Middlesex', 'MA'),
         County('New York City', 'NY'),
         County('Allegheny', 'PA'),
-        State('California'),
-        State('Massachusetts'),
-        State('New York'),
-        Country('Italy'),
-    ]
+    ])
+    display_all = []
 
-    to_color = {item: kelly_colors[i % len(kelly_colors)] for i, item in enumerate(all_display_items)}
+    to_color = {}
+
+    def update_colors():
+        to_color.clear()
+        to_color.update({
+            item: kelly_colors[i % len(kelly_colors)] for i, item in
+            enumerate(display_all)
+        })
+
+    def update_all_display_items():
+        display_all[:] = sorted(display_countries) + sorted(display_states) \
+            + sorted(display_counties)
+        update_colors()
+
+    def add_display_item(item):
+        if isinstance(item, Country):
+            display_countries.add(item)
+        elif isinstance(item, State):
+            display_states.add(item)
+        elif isinstance(item, County):
+            display_counties.add(item)
+        else:
+            raise TypeError("must be a Country, State, or County - got: {!r}"
+                            .format(item))
+        update_all_display_items()
+
+    # update to show initial items
+    update_all_display_items()
 
     def make_dataset(items_to_plot):
         to_graph_by_date = []
@@ -479,25 +523,70 @@ def modify_doc(doc):
         plot.legend.location = "top_left"
         return plot
 
-    def update(attr, old, new):
-        display_items = [all_display_items[i] for i in selection.active]
+    def update_plot(attr, old, new):
+        display_items = [display_all[i] for i in visibility_selection.active]
         data = make_dataset(display_items)
         plot = make_plot(data)
-        layout.children[1] = plot
+        main_layout.children[1] = plot
 
-    selection = CheckboxGroup(labels=[str(x) for x in all_display_items],
-                              active=list(range(len(all_display_items))))
-    selection.on_change('active', update)
+    visibility_selection = CheckboxGroup(labels=[str(x) for x in display_all],
+                                         active=list(range(len(display_all))))
+    visibility_selection.on_change('active', update_plot)
 
-    controls = Column(selection)
+    spacer = Spacer(height=10)
 
-    data = make_dataset(all_display_items)
+    def add_item_and_update(item):
+        if item in display_all:
+            return
+        add_display_item(item)
+        visible = set(visibility_selection.labels[i]
+                      for i in visibility_selection.active)
+        visible.add(str(item))
+        visibility_selection.labels = [str(x) for x in display_all]
+        visibility_selection.active = [
+            i for i, label in enumerate(visibility_selection.labels)
+            if label in visible
+        ]
+        update_plot(None, None, None)
+
+    all_countries = sorted(country_deaths_data.country.unique())
+    pick_country_dropdown = Select(title="Country:", value="United States",
+                                   options=all_countries)
+    add_country_button = Button(label="Add Country")
+    def click_add_country():
+        add_item_and_update(Country(pick_country_dropdown.value))
+    add_country_button.on_click(click_add_country)
+
+    all_states = sorted(states_data.state.unique())
+    pick_state_dropdown = Select(title="US State:", value="California",
+                                 options=all_states)
+    add_state_button = Button(label="Add State")
+    def click_add_state():
+        add_item_and_update(State(pick_state_dropdown.value))
+    add_state_button.on_click(click_add_state)
+
+    pick_county_dropdown = Select(title="US County:", value=SELECT_STATE,
+                                  options=[SELECT_STATE])
+    add_county_button = Button(label="Add County")
+
+    add_item_panel = column(pick_country_dropdown, add_country_button,
+                            spacer,
+                            pick_state_dropdown, add_state_button,
+                            spacer,
+                            pick_county_dropdown, add_county_button)
+
+    controls = column(visibility_selection,
+                      Div(text="<hr width=100>"),
+                      add_item_panel)
+
+    data = make_dataset(display_all)
     plot = make_plot(data)
 
     # Create a row layout
-    layout = row(controls, plot)
+    main_layout = row(controls, plot)
 
-    doc.add_root(layout)
+    doc.add_root(main_layout)
+
 
 if __name__ == '__main__':
     # Set up an application
