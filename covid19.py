@@ -486,8 +486,11 @@ def modify_doc(doc):
 
     add_county_button.on_click(click_add_county)
 
-    since_note = Paragraph(text="Note: graphable entities are filtered to"
+    note1 = Paragraph(text="Note: graphable entities are filtered to"
                            " only those that meet the minimum criteria")
+    note2 = Paragraph(text="Note: Some countries (ie Australia, US), for which"
+                           " my datasource doesn't provide nicely summarized"
+                           " data, currently missing")
 
     # TODO: get US, Australia working
     #   Get county picking working
@@ -496,9 +499,9 @@ def modify_doc(doc):
                             spacer,
                             pick_state_dropdown, add_state_button,
                             spacer,
-                           pick_county_dropdown, add_county_button,
-                           spacer,
-                            since_note)
+                            pick_county_dropdown, add_county_button,
+                            spacer,
+                            note1, note2)
 
     controls = column(visibility_selection,
                       Div(text="<hr width=100>"),
