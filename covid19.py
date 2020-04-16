@@ -300,7 +300,6 @@ class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
             self = County(self.name, state_to_abbrev[self.state])
         return self
 
-SELECT_STATE = "-- Select State --"
 
 ################################################################################
 # Bokeh application logic
@@ -456,13 +455,36 @@ def modify_doc(doc):
     pick_state_dropdown = Select(title="US State:", value="California",
                                  options=all_states)
     add_state_button = Button(label="Add State")
+
     def click_add_state():
         add_item_and_update(State(pick_state_dropdown.value))
+
     add_state_button.on_click(click_add_state)
 
-    pick_county_dropdown = Select(title="US County:", value=SELECT_STATE,
-                                  options=[SELECT_STATE])
+    pick_county_dropdown = Select(title="US County:")
     add_county_button = Button(label="Add County")
+
+    # update county values when state changes
+    def pick_state_changed(attr, old_state, new_state):
+        assert attr == 'value'
+        del old_state
+        all_counties = sorted(
+            counties_data[
+                (counties_data.state == new_state)
+                & (counties_data.deaths_per_million >= 1.0)
+            ].county.unique()
+        )
+        pick_county_dropdown.options = all_counties
+        pick_county_dropdown.value = all_counties[0]
+
+    pick_state_dropdown.on_change('value', pick_state_changed)
+    pick_state_changed('value', None, pick_state_dropdown.value)
+
+    def click_add_county():
+        add_item_and_update(County(pick_county_dropdown.value,
+                                   pick_state_dropdown.value))
+
+    add_county_button.on_click(click_add_county)
 
     since_note = Paragraph(text="Note: graphable entities are filtered to"
                            " only those that meet the minimum criteria")
@@ -474,8 +496,8 @@ def modify_doc(doc):
                             spacer,
                             pick_state_dropdown, add_state_button,
                             spacer,
-#                            pick_county_dropdown, add_county_button,
-#                            spacer,
+                           pick_county_dropdown, add_county_button,
+                           spacer,
                             since_note)
 
     controls = column(visibility_selection,
