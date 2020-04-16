@@ -413,15 +413,17 @@ def modify_doc(doc):
         plot.legend.location = "top_left"
         return plot
 
-    def update_plot(attr, old, new):
-        display_items = [display_all[i] for i in visibility_selection.active]
+    def update_vis(attr, old_vis, new_vis):
+        del old_vis
+        assert attr == 'active'
+        display_items = [display_all[i] for i in new_vis]
         data = make_dataset(display_items)
         plot = make_plot(data)
         main_layout.children[1] = plot
 
     visibility_selection = CheckboxGroup(labels=[str(x) for x in display_all],
                                          active=list(range(len(display_all))))
-    visibility_selection.on_change('active', update_plot)
+    visibility_selection.on_change('active', update_vis)
 
     spacer = Spacer(height=10)
 
@@ -437,7 +439,7 @@ def modify_doc(doc):
             i for i, label in enumerate(visibility_selection.labels)
             if label in visible
         ]
-        update_plot(None, None, None)
+        update_vis('active', None, visibility_selection.active)
 
     all_countries = sorted(
         country_deaths_data[country_deaths_data.deaths_per_million >= 1.0]
