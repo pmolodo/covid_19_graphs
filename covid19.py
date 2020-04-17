@@ -6,6 +6,7 @@
 
 import pandas
 
+import abc
 import math
 import os
 
@@ -18,8 +19,8 @@ from bokeh.plotting import figure, output_notebook, show
 
 from collections import OrderedDict, namedtuple
 
-
-# Constant mappings
+################################################################################
+# Constants
 
 state_to_abbrev = {
     'Alabama': 'AL',
@@ -83,57 +84,11 @@ state_to_abbrev = {
     'Wyoming': 'WY',
 }
 
+
 abbrev_to_state = dict((abbrev, state) for (state, abbrev) in state_to_abbrev.items())
 
-################################################################################
-# Get county population data
 
-# County population data from us census
-#     https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
-#     https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv
-
-all_pop_data = pandas.read_csv('./co-est2019-alldata.csv', encoding='IBM850')
-#with open('./co-est2019-alldata.csv') as f:
-#    text = f.read()
-county_pop_data = all_pop_data[all_pop_data.SUMLEV == 50][
-    ['STATE', 'COUNTY', 'STNAME', 'CTYNAME', 'POPESTIMATE2019']
-]
-county_pop_data['fips'] = county_pop_data.STATE * 1000 + county_pop_data.COUNTY
-county_pop_data[county_pop_data.fips == 6037]
-
-county_pop_data = county_pop_data[['fips', 'POPESTIMATE2019']]
-county_pop_data = county_pop_data.rename(columns={
-    'POPESTIMATE2019': 'population',
-})
-county_pop_data = county_pop_data.set_index('fips')
-
-################################################################################
-# Get state population data
-
-state_pop_data = all_pop_data[all_pop_data.SUMLEV == 40][
-    ['STATE', 'STNAME', 'POPESTIMATE2019']
-]
-state_pop_data = state_pop_data.rename(columns={
-    'POPESTIMATE2019': 'population',
-    'STATE': 'fips',
-    'STNAME': 'state',
-})
-state_pop_data = state_pop_data.set_index('fips')
-
-################################################################################
-# Get county Covid-19 data
-
-nytimes_counties_url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
-counties_raw_data = pandas.read_csv(nytimes_counties_url, parse_dates=['date'])
-# fips codes are left out for, ie, New York City, and "Unknown" groupings for states
-
-# Fixup New York City
-
-# New York city is special - the city is divided into 5 counties (that's backward!)
-# It's obviously so weird that even the New York Times doesn't abide by this, and just lists
-# one entry for "New York City" - need to deal with this foolishness specially
-
-new_york_burroughs = [
+NYC_BURROUGHS = [
     'New York County',
     'Kings County',
     'Bronx County',
@@ -141,103 +96,9 @@ new_york_burroughs = [
     'Queens County',
 ]
 
-nycity_pop = 0
-for burrough in new_york_burroughs:
-    burrough_data = all_pop_data[(all_pop_data.STNAME == 'New York') & (all_pop_data.CTYNAME == burrough)]
-    assert len(burrough_data) == 1
-    nycity_pop += burrough_data.POPESTIMATE2019.iat[0]
 
-    # make up nycity's fips as -1
+# make up nycity's fips as -1
 NYCITY_FIPS = -1
-
-county_pop_data.loc[NYCITY_FIPS] = nycity_pop
-
-#nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
-#nycity_data.fips = NYCITY_FIPS
-
-counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = NYCITY_FIPS
-
-# Process county covid data
-
-counties_data = counties_raw_data[counties_raw_data.fips.notna()]
-counties_data = counties_data.astype({'fips': int})
-#counties_data['state_fips'] = counties_data.fips // 1000
-#counties_data['county_fips'] = counties_data.fips % 1000
-#counties_data['county_state'] = counties_data['county'].str.cat(counties_data['state'], sep =", ")
-#all_counties = (counties_data['county_state'].unique())
-
-# Confirm all counties in nytimes data have population data
-counties_fips = set(counties_data.fips.unique())
-county_pop_fips = set(county_pop_data.index.unique())
-assert len(counties_fips - county_pop_fips) == 0
-
-counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
-counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
-counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
-
-
-################################################################################
-# Get state Covid-19 data
-
-nytimes_states_url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv'
-states_raw_data = pandas.read_csv(nytimes_states_url, parse_dates=['date'])
-states_data = states_raw_data.astype({'fips': int})
-
-# the nytimes data has some territories, for which we don't yet have pop data...
-state_pop_fips = set(state_pop_data.index.unique())
-# state_pop_data has 50 states + DC
-assert len(state_pop_fips) == 51
-states_fips = set(states_data.fips.unique())
-assert state_pop_fips.issubset(states_fips)
-
-states_data = pandas.merge(states_data, state_pop_data['population'], how='inner',
-                           left_on='fips', right_on=state_pop_data.index)
-states_data['cases_per_million'] = states_data.cases / (states_data.population / 1e6)
-states_data['deaths_per_million'] = states_data.deaths / (states_data.population / 1e6)
-
-# Confirm all states in nytimes data have abbreviations
-counties_states = set(counties_data.state.unique())
-abbrev_states = set(state_to_abbrev)
-assert len(counties_states - abbrev_states) == 0
-states_states = set(states_data.state.unique())
-assert len(states_states - abbrev_states) == 0
-
-
-################################################################################
-# Get country population data
-
-# from https://population.un.org/wpp/Download/Standard/CSV/
-un_pop_raw_data = pandas.read_csv('WPP2019_TotalPopulationBySex.csv')
-un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
-# all data <= 2019 is automatically in "medium" variant - VarID = 2
-drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
-un_pop_data = un_pop_data.drop(drop_columns, axis='columns')
-un_pop_data = un_pop_data.reset_index(drop=True)
-un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
-# un_pop_data is in thousands
-un_pop_data['population'] *= 1000
-un_pop_data = un_pop_data.astype({'population': int})
-
-
-################################################################################
-# Get country deaths data
-
-JHU_global_deaths_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
-country_deaths_raw_data = pandas.read_csv(JHU_global_deaths_url)
-country_deaths_data = country_deaths_raw_data.rename(columns={
-    'Country/Region': 'country',
-    'Province/State': 'province',
-})
-# filter out province / state data for now (might want to eventually support this)
-country_deaths_data = country_deaths_data[country_deaths_data.province.isna()]
-country_deaths_data = country_deaths_data.drop(['province', 'Lat', 'Long'], axis='columns')
-country_deaths_data = country_deaths_data.melt(id_vars=['country'], var_name='date', value_name='deaths')
-country_deaths_data['date'] = pandas.to_datetime(country_deaths_data.date)
-country_deaths_data.head()
-
-country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[['country', 'population']], how='inner',
-                           left_on='country', right_on='country')
-country_deaths_data['deaths_per_million'] = country_deaths_data.deaths / (country_deaths_data.population / 1e6)
 
 
 ################################################################################
@@ -274,8 +135,198 @@ kelly_colors = list(kelly_colors_dict.values())
 
 
 ################################################################################
-# Country / State / County data types
+# DataGrabbers
 
+class DataGrabber(abc.ABC):
+
+    _data = None
+
+    @classmethod
+    def get(cls):
+        if cls._data is None:
+            cls._data = cls.retrieve()
+        return cls._data
+
+    @classmethod
+    @abc.abstractmethod
+    def retrieve(cls):
+        raise NotImplementedError
+
+
+# County population data from us census
+#     https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
+#     https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv
+
+class USPopulationData(DataGrabber):
+    FILE = './co-est2019-alldata.csv'
+
+    @classmethod
+    def retrieve(cls):
+        return pandas.read_csv(cls.FILE, encoding='IBM850')
+
+
+class CountyPopulationData(DataGrabber):
+    @classmethod
+    def retrieve(cls):
+        all_pop_data = USPopulationData.get()
+
+        county_pop_data = all_pop_data[all_pop_data.SUMLEV == 50][
+            ['STATE', 'COUNTY', 'STNAME', 'CTYNAME', 'POPESTIMATE2019']
+        ]
+        county_pop_data['fips'] = county_pop_data.STATE * 1000 + county_pop_data.COUNTY
+        county_pop_data = county_pop_data[['fips', 'POPESTIMATE2019']]
+        county_pop_data = county_pop_data.rename(columns={
+            'POPESTIMATE2019': 'population',
+        })
+        county_pop_data = county_pop_data.set_index('fips')
+        return cls.add_nyc(all_pop_data, county_pop_data)
+
+    @classmethod
+    def add_nyc(cls, all_pop_data, county_pop_data):
+        # Fixup New York City
+
+        # New York city is special - the city is divided into 5 counties (that's backward!)
+        # It's obviously so weird that even the New York Times doesn't abide by this, and just lists
+        # one entry for "New York City" - need to deal with this foolishness specially
+
+        nycity_pop = 0
+        for burrough in NYC_BURROUGHS:
+            burrough_data = all_pop_data[
+                (all_pop_data.STNAME == 'New York')
+                & (all_pop_data.CTYNAME == burrough)]
+            assert len(burrough_data) == 1
+            nycity_pop += burrough_data.POPESTIMATE2019.iat[0]
+
+        county_pop_data.loc[NYCITY_FIPS] = nycity_pop
+        return county_pop_data
+
+
+class StatePopulationData(DataGrabber):
+    @classmethod
+    def retrieve(cls):
+        all_pop_data = USPopulationData.get()
+
+        state_pop_data = all_pop_data[all_pop_data.SUMLEV == 40][
+            ['STATE', 'STNAME', 'POPESTIMATE2019']
+        ]
+        state_pop_data = state_pop_data.rename(columns={
+            'POPESTIMATE2019': 'population',
+            'STATE': 'fips',
+            'STNAME': 'state',
+        })
+        return state_pop_data.set_index('fips')
+
+
+class CountryPopulationData(DataGrabber):
+    FILE = './WPP2019_TotalPopulationBySex.csv'
+
+    @classmethod
+    def retrieve(cls):
+        # from https://population.un.org/wpp/Download/Standard/CSV/
+        un_pop_raw_data = pandas.read_csv(cls.FILE)
+        un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
+        # all data <= 2019 is automatically in "medium" variant - VarID = 2
+        drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
+        un_pop_data = un_pop_data.drop(drop_columns, axis='columns')
+        un_pop_data = un_pop_data.reset_index(drop=True)
+        un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
+        # un_pop_data is in thousands
+        un_pop_data['population'] *= 1000
+        return un_pop_data.astype({'population': int})
+
+
+class CountyDeathsData(DataGrabber):
+    URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
+
+    @classmethod
+    def retrieve(cls):
+        counties_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+
+        #nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
+        #nycity_data.fips = NYCITY_FIPS
+
+        counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = NYCITY_FIPS
+
+        # Process county covid data
+
+        counties_data = counties_raw_data[counties_raw_data.fips.notna()]
+        counties_data = counties_data.astype({'fips': int})
+        #counties_data['state_fips'] = counties_data.fips // 1000
+        #counties_data['county_fips'] = counties_data.fips % 1000
+        #counties_data['county_state'] = counties_data['county'].str.cat(counties_data['state'], sep =", ")
+        #all_counties = (counties_data['county_state'].unique())
+
+        # Confirm all counties in nytimes data have population data
+        county_pop_data = CountyPopulationData.get()
+        counties_fips = set(counties_data.fips.unique())
+        county_pop_fips = set(county_pop_data.index.unique())
+        assert len(counties_fips - county_pop_fips) == 0
+
+        counties_states = set(counties_data.state.unique())
+        abbrev_states = set(state_to_abbrev)
+        assert len(counties_states - abbrev_states) == 0
+
+        counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
+        counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
+        counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
+        return counties_data
+
+
+class StateDeathsData(DataGrabber):
+    URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv'
+
+    @classmethod
+    def retrieve(cls):
+        states_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+        states_data = states_raw_data.astype({'fips': int})
+
+        state_pop_data = StatePopulationData.get()
+
+        # the nytimes data has some territories, for which we don't yet have pop data...
+        state_pop_fips = set(state_pop_data.index.unique())
+        # state_pop_data has 50 states + DC
+        assert len(state_pop_fips) == 51
+        states_fips = set(states_data.fips.unique())
+        assert state_pop_fips.issubset(states_fips)
+
+        states_data = pandas.merge(states_data, state_pop_data['population'], how='inner',
+                                   left_on='fips', right_on=state_pop_data.index)
+        states_data['cases_per_million'] = states_data.cases / (states_data.population / 1e6)
+        states_data['deaths_per_million'] = states_data.deaths / (states_data.population / 1e6)
+
+        # Confirm all states in nytimes data have abbreviations
+        states_states = set(states_data.state.unique())
+        abbrev_states = set(state_to_abbrev)
+        assert len(states_states - abbrev_states) == 0
+        return states_data
+
+
+class CountryDeathsData(DataGrabber):
+    URL = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
+
+    @classmethod
+    def retrieve(cls):
+        country_deaths_raw_data = pandas.read_csv(cls.URL)
+        country_deaths_data = country_deaths_raw_data.rename(columns={
+            'Country/Region': 'country',
+            'Province/State': 'province',
+        })
+        # filter out province / state data for now (might want to eventually support this)
+        country_deaths_data = country_deaths_data[country_deaths_data.province.isna()]
+        country_deaths_data = country_deaths_data.drop(['province', 'Lat', 'Long'], axis='columns')
+        country_deaths_data = country_deaths_data.melt(id_vars=['country'], var_name='date', value_name='deaths')
+        country_deaths_data['date'] = pandas.to_datetime(country_deaths_data.date)
+
+        un_pop_data = CountryPopulationData.get()
+
+        country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[['country', 'population']], how='inner',
+                                   left_on='country', right_on='country')
+        country_deaths_data['deaths_per_million'] = country_deaths_data.deaths / (country_deaths_data.population / 1e6)
+        return country_deaths_data
+
+
+################################################################################
+# Country / State / County data types
 
 class CommaJoinedTuple(object):
     def __str__(self):
@@ -306,6 +357,10 @@ class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
 
 def modify_doc(doc):
     doc.title = "Covid-19 Graphs"
+
+    counties_data = CountyDeathsData.get()
+    states_data = StateDeathsData.get()
+    countries_data = CountryDeathsData.get()
 
     # initial items to graph
     display_countries = set([
@@ -373,7 +428,7 @@ def modify_doc(doc):
 
             elif isinstance(item, Country):
                 country = item.name
-                country_data = country_deaths_data[country_deaths_data.country == country]
+                country_data = countries_data[countries_data.country == country]
                 assert len(country_data) > 0, f"no country data for {country}"
                 to_append = (label, country_data)
             else:
@@ -441,7 +496,7 @@ def modify_doc(doc):
         update_vis('active', None, visibility_selection.active)
 
     all_countries = sorted(
-        country_deaths_data[country_deaths_data.deaths_per_million >= 1.0]
+        countries_data[countries_data.deaths_per_million >= 1.0]
             .country.unique())
     pick_country_dropdown = Select(title="Country:", value="Spain",
                                    options=all_countries)
