@@ -7,15 +7,13 @@
 import pandas
 
 import abc
-import math
-import os
 
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
 from bokeh.layouts import row, column
-from bokeh.models import Button, Div, Panel, Paragraph, Select, Spacer
-from bokeh.models.widgets import CheckboxGroup, Tabs
-from bokeh.plotting import figure, output_notebook, show
+from bokeh.models import Button, Div, Paragraph, Select, Spacer
+from bokeh.models.widgets import CheckboxGroup
+from bokeh.plotting import figure, show
 
 from collections import OrderedDict, namedtuple
 
@@ -363,21 +361,21 @@ def modify_doc(doc):
     countries_data = CountryDeathsData.get()
 
     # initial items to graph
-    display_countries = set([
+    display_countries = {
         Country('Italy'),
-    ])
-    display_states = set([
+    }
+    display_states = {
         State('California'),
         State('Massachusetts'),
         State('New York'),
-    ])
-    display_counties = set([
+    }
+    display_counties = {
         County('Los Angeles', 'CA'),
         County('Orange', 'CA'),
         County('Middlesex', 'MA'),
         County('New York City', 'NY'),
         County('Allegheny', 'PA'),
-    ])
+    }
     display_all = []
 
     to_color = {}
