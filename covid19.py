@@ -230,6 +230,10 @@ class CountryPopulationData(DataGrabber):
         un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
         # un_pop_data is in thousands
         un_pop_data['population'] *= 1000
+
+        # Use "United States" both because it's shorter, and it's what OWID uses
+        un_pop_data = un_pop_data.replace(
+            {'United States of America': 'United States'})
         return un_pop_data.astype({'population': int})
 
 
@@ -300,10 +304,34 @@ class StateDeathsData(DataGrabber):
 
 
 class CountryDeathsData(DataGrabber):
+    @classmethod
+    def retrieve(cls):
+        country_deaths_data = cls._retrieve_raw()
+
+        un_pop_data = CountryPopulationData.get()
+
+        country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[
+            ['country', 'population']], how='inner',
+                                           left_on='country',
+                                           right_on='country')
+        country_deaths_data[
+            'deaths_per_million'] = country_deaths_data.deaths / (
+                    country_deaths_data.population / 1e6)
+        return country_deaths_data
+
+    @classmethod
+    @abc.abstractmethod
+    def _retrieve_raw(cls):
+        raise NotImplementedError
+
+
+# Currently not used - doesn't have data for US, or summed data for Australia,
+# and a few other countries
+class JHUCountryDeathsData(CountryDeathsData):
     URL = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
 
     @classmethod
-    def retrieve(cls):
+    def _retrieve_raw(cls):
         country_deaths_raw_data = pandas.read_csv(cls.URL)
         country_deaths_data = country_deaths_raw_data.rename(columns={
             'Country/Region': 'country',
@@ -314,12 +342,21 @@ class CountryDeathsData(DataGrabber):
         country_deaths_data = country_deaths_data.drop(['province', 'Lat', 'Long'], axis='columns')
         country_deaths_data = country_deaths_data.melt(id_vars=['country'], var_name='date', value_name='deaths')
         country_deaths_data['date'] = pandas.to_datetime(country_deaths_data.date)
+        return country_deaths_data
 
-        un_pop_data = CountryPopulationData.get()
 
-        country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[['country', 'population']], how='inner',
-                                   left_on='country', right_on='country')
-        country_deaths_data['deaths_per_million'] = country_deaths_data.deaths / (country_deaths_data.population / 1e6)
+class OWIDCountryDeathsData(CountryDeathsData):
+    URL = 'https://covid.ourworldindata.org/data/ecdc/full_data.csv'
+
+    @classmethod
+    def _retrieve_raw(cls):
+        country_deaths_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+        country_deaths_data = country_deaths_raw_data.rename(columns={
+            'location': 'country',
+            'total_deaths': 'deaths',
+        })
+        country_deaths_data = country_deaths_data.drop(
+            ['new_cases', 'new_deaths', 'total_cases'], axis='columns')
         return country_deaths_data
 
 
@@ -358,7 +395,7 @@ def modify_doc(doc):
 
     counties_data = CountyDeathsData.get()
     states_data = StateDeathsData.get()
-    countries_data = CountryDeathsData.get()
+    countries_data = OWIDCountryDeathsData.get()
 
     # initial items to graph
     display_countries = {
@@ -541,9 +578,6 @@ def modify_doc(doc):
 
     note1 = Paragraph(text="Note: graphable entities are filtered to"
                            " only those that meet the minimum criteria")
-    note2 = Paragraph(text="Note: Some countries (ie Australia, US), for which"
-                           " my datasource doesn't provide nicely summarized"
-                           " data, currently missing")
 
     # TODO: get US, Australia working
     #   Get county picking working
@@ -554,7 +588,7 @@ def modify_doc(doc):
                             spacer,
                             pick_county_dropdown, add_county_button,
                             spacer,
-                            note1, note2)
+                            note1)
 
     controls = column(visibility_selection,
                       Div(text="<hr width=100>"),
