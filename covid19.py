@@ -403,15 +403,11 @@ def modify_doc(doc):
     }
     display_states = {
         State('California'),
-        State('Massachusetts'),
         State('New York'),
     }
     display_counties = {
         County('Los Angeles', 'CA'),
-        County('Orange', 'CA'),
-        County('Middlesex', 'MA'),
         County('New York City', 'NY'),
-        County('Allegheny', 'PA'),
     }
     display_all = []
 
