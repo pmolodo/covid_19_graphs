@@ -11,7 +11,7 @@ import abc
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
 from bokeh.layouts import row, column
-from bokeh.models import Button, Div, Paragraph, Select, Spacer
+from bokeh.models import Button, Div, Paragraph, Row, Select, Spacer
 from bokeh.models.widgets import CheckboxGroup
 from bokeh.plotting import figure, show
 
@@ -390,9 +390,6 @@ class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
 ################################################################################
 # Bokeh application logic
 
-# Note - this may not fit the technical definition of a MVC design, but it's
-# an organization which made sense to me, and was easy to implement...
-
 # Model
 class DisplayEntities(object):
     def __init__(self):
@@ -455,19 +452,28 @@ class DisplayEntities(object):
         self.set_visibility(entity, True)
         self._invalidate()
 
+    def remove(self, entity):
+        if isinstance(entity, Country):
+            self._countries.remove(entity)
+        elif isinstance(entity, State):
+            self._states.remove(entity)
+        elif isinstance(entity, County):
+            self._counties.remove(entity)
+        else:
+            raise TypeError("must be a Country, State, or County - got: {!r}"
+                            .format(entity))
+        self.set_visibility(entity, False)
+        self._invalidate()
+
     def set_visibility(self, entity, is_visible):
         if is_visible:
             self._visible.add(entity)
         else:
             self._visible.remove(entity)
+        self._visible_ordered = None
 
     def is_visible(self, entity):
         return entity in self._visible
-
-    def set_all_visible(self, visible_entities):
-        self._visible.clear()
-        self._visible.update(visible_entities)
-        self._visible_ordered = None
 
     def visible(self):
         return set(self._visible)
@@ -576,36 +582,54 @@ class View(object):
         '''constructs the main layout'''
         self.doc.title = "Covid-19 Graphs"
 
-        self.visibility_selection = self.build_visibility_selection()
+        self.entities_ui = self.build_entity_ui_rows()
         self.add_entity_panel = self.build_add_entity_panel()
 
-        self.controls = column(self.visibility_selection,
+        self.controls = column(self.entities_ui,
                                Div(text="<hr width=100>"),
                                self.add_entity_panel)
+        self.controls.width_policy = "min"
         # Create a row layout
 
         # actual plot will be replace by make_plot when we have data, and
         # are ready to draw
         self.plot = figure(title="Dummy placeholder plot")
-        self.main_layout = row(self.controls, self.plot)
+        self.main_layout = Row(self.controls, self.plot)
+        self.main_layout.sizing_mode = "stretch_both"
         self.doc.add_root(self.main_layout)
 
-    def build_visibility_selection(self):
-        visible_indices = [i for i, entity in enumerate(self.model.entities)
-            if self.model.entities.is_visible(entity)]
+    def build_entity_ui_row(self, entity):
+        is_visible = self.model.entities.is_visible(entity)
+        if is_visible:
+            active = [0]
+        else:
+            active = []
+        vis_check = CheckboxGroup(labels=[str(entity)], active=active,
+                                  width_policy="min")
 
         def update_visible(attr, old_visible_indices, visible_indices):
             del old_visible_indices
-            assert attr == 'active'
-            visible_entities = [self.model.entities[i] for i in visible_indices]
-            self.controller.update_visible(visible_entities, update_view=False)
+            assert visible_indices == [] or visible_indices == [0]
+            self.controller.update_visible(entity, bool(visible_indices),
+                                           update_view=False)
 
-        visibility_selection = CheckboxGroup(
-            labels=[str(x) for x in self.model.entities],
-            active=visible_indices)
+        vis_check.on_change('active', update_visible)
 
-        visibility_selection.on_change('active', update_visible)
-        return visibility_selection
+        spacer = Spacer(sizing_mode="stretch_width")
+        delete_button = Button(label="X", button_type="danger",
+                               width_policy="min", height_policy="min")
+
+        def remove_entity():
+            self.controller.remove_entity(entity)
+
+        delete_button.on_click(remove_entity)
+
+        return row(vis_check, spacer, delete_button)
+
+    def build_entity_ui_rows(self):
+        rows = [self.build_entity_ui_row(e) for e in self.model.entities]
+        entity_column = column(rows, width_policy="max")
+        return entity_column
 
     def build_add_entity_panel(self):
         # Country
@@ -685,15 +709,13 @@ class View(object):
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
            y_axis_type='log')
 
-        # Want to enable this, but it makes graphs not display at all on iphone (chrome + safari)
-        #plot.sizing_mode = 'scale_height'
-
         for entity, line_data in data:
             plot.line(x='days', y='deaths_per_million', source=line_data,
                       line_width=3, color=self.color(entity),
                       legend_label=str(entity))
 
         plot.legend.location = "top_left"
+        plot.sizing_mode = "stretch_both"
         return plot
 
     def update_plot(self, data):
@@ -701,8 +723,8 @@ class View(object):
         self.main_layout.children[1] = self.plot
 
     def update_visibility(self):
-        self.visibility_selection = self.build_visibility_selection()
-        self.controls.children[0] = self.visibility_selection
+        self.entities_ui = self.build_entity_ui_rows()
+        self.controls.children[0] = self.entities_ui
 
 
 class Controller(object):
@@ -736,7 +758,7 @@ class Controller(object):
             self.model.entities.add(entity)
 
         # update the visibility widget and the plot
-        self.update_visible()
+        self.update_all_visible()
 
     def add_entity(self, entity):
         if entity in self.model.entities:
@@ -746,15 +768,33 @@ class Controller(object):
         self.view.update_visibility()
         self.update_plot()
 
+    def remove_entity(self, entity):
+        self.model.entities.remove(entity)
+        self.view.update_visibility()
+        self.update_plot()
+
     def update_plot(self):
         self.view.update_plot(self.model.make_dataset())
 
-    def update_visible(self, visible_entities=None, update_view=True):
+    def update_all_visible(self, visible_entities=None, update_view=True,
+                           update_plot=True):
         if visible_entities is not None:
-            self.model.entities.set_all_visible(visible_entities)
+            for entity in visible_entities:
+                self.update_visible(entity, update_view=False,
+                                    update_plot=False)
         if update_view:
             self.view.update_visibility()
-        self.update_plot()
+        if update_plot:
+            self.update_plot()
+
+    def update_visible(self, entity, visible, update_view=True,
+                       update_plot=True):
+        self.model.entities.set_visibility(entity, visible)
+        if update_view:
+            self.view.update_visibility()
+        if update_plot:
+            self.update_plot()
+
 
 
 def modify_doc(doc):
