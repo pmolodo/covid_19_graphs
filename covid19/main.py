@@ -7,11 +7,13 @@
 import pandas
 
 import abc
+import urllib
 
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
 from bokeh.layouts import row, column
-from bokeh.models import Button, Div, Paragraph, Row, Select, Spacer
+from bokeh.models import Button, Column, CustomJS, Div, Paragraph, Row, Select,\
+    Spacer
 from bokeh.models.widgets import CheckboxGroup
 from bokeh.plotting import figure, show
 
@@ -98,6 +100,8 @@ NYC_BURROUGHS = [
 # make up nycity's fips as -1
 NYCITY_FIPS = -1
 
+SEP = ';'
+
 
 ################################################################################
 # Colors
@@ -160,7 +164,10 @@ class USPopulationData(DataGrabber):
 
     @classmethod
     def retrieve(cls):
-        return pandas.read_csv(cls.FILE, encoding='IBM850')
+        result = pandas.read_csv(cls.FILE, encoding='IBM850')
+        assert result[result.STNAME.str.contains(SEP)].empty
+        assert result[result.CTYNAME.str.contains(SEP)].empty
+        return result
 
 
 class CountyPopulationData(DataGrabber):
@@ -222,6 +229,7 @@ class CountryPopulationData(DataGrabber):
     def retrieve(cls):
         # from https://population.un.org/wpp/Download/Standard/CSV/
         un_pop_raw_data = pandas.read_csv(cls.FILE)
+
         un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
         # all data <= 2019 is automatically in "medium" variant - VarID = 2
         drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
@@ -234,7 +242,9 @@ class CountryPopulationData(DataGrabber):
         # Use "United States" both because it's shorter, and it's what OWID uses
         un_pop_data = un_pop_data.replace(
             {'United States of America': 'United States'})
-        return un_pop_data.astype({'population': int})
+        un_pop_data = un_pop_data.astype({'population': int})
+        assert un_pop_data[un_pop_data.country.str.contains(SEP)].empty
+        return un_pop_data
 
 
 class CountyDeathsData(DataGrabber):
@@ -271,6 +281,10 @@ class CountyDeathsData(DataGrabber):
         counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
         counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
         counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
+
+        assert counties_data[counties_data.county.str.contains(SEP)].empty
+        assert counties_data[counties_data.state.str.contains(SEP)].empty
+
         return counties_data
 
 
@@ -300,6 +314,9 @@ class StateDeathsData(DataGrabber):
         states_states = set(states_data.state.unique())
         abbrev_states = set(state_to_abbrev)
         assert len(states_states - abbrev_states) == 0
+
+        assert states_data[states_data.state.str.contains(SEP)].empty
+
         return states_data
 
 
@@ -317,6 +334,9 @@ class CountryDeathsData(DataGrabber):
         country_deaths_data[
             'deaths_per_million'] = country_deaths_data.deaths / (
                     country_deaths_data.population / 1e6)
+
+        assert country_deaths_data[country_deaths_data.country.str.contains(SEP)].empty
+
         return country_deaths_data
 
     @classmethod
@@ -367,6 +387,13 @@ class Entity(object):
     def __str__(self):
         return ', '.join(str(x) for x in self)
 
+    def serialize(self):
+        return SEP.join(str(x) for x in self)
+
+    @classmethod
+    def deserialize(cls, raw):
+        return cls(*raw.split(SEP))
+
 class Country(Entity, namedtuple('CountryBase', ['name'])):
     pass
 
@@ -387,18 +414,37 @@ class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
         return self
 
 
+DEFAULT_INITIAL_ENTITIES = [
+    Country('Italy'),
+    State('California'),
+    State('New York'),
+    County('Los Angeles', 'CA'),
+    County('New York City', 'NY'),
+]
+
+
 ################################################################################
 # Bokeh application logic
 
 # Model
 class DisplayEntities(object):
-    def __init__(self):
-        self._countries = set()
-        self._states = set()
-        self._counties = set()
+    def __init__(self, countries=(), states=(), counties=(), visible=None,
+                 hidden=None):
+        self._countries = set(countries)
+        self._states = set(states)
+        self._counties = set(counties)
         self._visible = set()
         self._callbacks = {}
         self._invalidate()
+
+        if visible is not None:
+            if hidden is not None:
+                raise ValueError("may only specify one of visible or hidden")
+            self.set_all_visible(visible)
+        elif hidden is not None:
+            self.set_all_hidden(hidden)
+        else:
+            self.set_all_visible(self)
 
     def __iter__(self):
         return iter(self.ordered())
@@ -472,6 +518,27 @@ class DisplayEntities(object):
             self._visible.discard(entity)
         self._visible_ordered = None
 
+    def set_all_visible(self, visible):
+        if all(isinstance(x, int) for x in visible):
+            ordered = self.ordered()
+            visible = [ordered[i] for i in visible]
+        elif not all(isinstance(x, Entity) for x in visible):
+            raise ValueError('all inputs must be either Entity objects or '
+                             'integer indices')
+        self._visible.update(visible)
+        self._visible_ordered = None
+
+    def set_all_hidden(self, hidden):
+        if all(isinstance(x, int) for x in hidden):
+            ordered = self.ordered()
+            hidden = [ordered[i] for i in hidden]
+        elif not all(isinstance(x, Entity) for x in hidden):
+            raise ValueError('all inputs must be either Entity objects or '
+                             'integer indices')
+        self._visible.clear()
+        self._visible.update(set(self) - set(hidden))
+        self._visible_ordered = None
+
     def is_visible(self, entity):
         return entity in self._visible
 
@@ -483,6 +550,53 @@ class DisplayEntities(object):
             self._visible_ordered = [x for x in self.ordered()
                                      if x in self._visible]
         return self._visible_ordered
+
+    def serialize(self):
+        # when serializing, we output invisible, instead of visible, since we
+        # assume that will be smaller
+        result = {}
+        if self._countries:
+            result['countries'] = sorted(x.serialize() for x in self._countries)
+        if self._states:
+            result['states'] = sorted(x.serialize() for x in self._states)
+        if self._counties:
+            result['counties'] = sorted(x.serialize() for x in self._counties)
+        hidden = [x for x in self if x not in self._visible]
+        if hidden:
+            # ordering is well defined, so can use indices, which avoids needing
+            # to specify the type (Country/State/County) of each entry in
+            # hidden, and is also more compact
+            result['hidden'] = [self.index(x) for x in hidden]
+        return result
+
+    @classmethod
+    def deserialize(cls, raw):
+        countries = [Country.deserialize(x) for x in raw.get('countries', [])]
+        states = [State.deserialize(x) for x in raw.get('states', [])]
+        counties = [County.deserialize(x) for x in raw.get('counties', [])]
+        hidden = raw.get('hidden')
+        return cls(countries=countries, states=states, counties=counties,
+                   hidden=hidden)
+
+    def to_query(self):
+        as_dict = self.serialize()
+        return urllib.parse.urlencode(as_dict, doseq=True)
+
+    @classmethod
+    def from_query(cls, parsed_query):
+        # unlike urllib.parse.urlencode, whatever bokeh uses to get
+        # it's args back doesn't handle str (unicode), and leaves things as
+        # bytes... so first, need to convert everything to str
+        parsed_query = {key: [x.decode('utf-8') for x in val]
+                        for key, val in parsed_query.items()}
+
+        # only thing we need to do is convert otherwise is hidden indices from
+        # str to int, since urllib.parse.urlencode doesn't preserve type
+        hidden = parsed_query.pop('hidden', None)
+        if hidden:
+            hidden = [int(x) for x in hidden]
+            parsed_query['hidden'] = hidden
+        return cls.deserialize(parsed_query)
 
 
 class Model(object):
@@ -594,9 +708,54 @@ class View(object):
         # actual plot will be replace by make_plot when we have data, and
         # are ready to draw
         self.plot = figure(title="Dummy placeholder plot")
-        self.main_layout = Row(self.controls, self.plot)
-        self.main_layout.sizing_mode = "stretch_both"
+
+        self.controls_plot = Row(self.controls, self.plot)
+        self.controls_plot.sizing_mode = "stretch_both"
+
+        self.save_button = self.build_save_button()
+        self.main_layout = Column(self.controls_plot, self.save_button,
+                                  sizing_mode='stretch_both')
         self.doc.add_root(self.main_layout)
+
+    def build_save_button(self):
+        save_button = Button(label='Save/Share')
+
+        # want to have a click call python code (to calculate the url), and
+        # then javascript (to do the dialog)
+        # only way to do this that I found was to chain callbacks, as shown here
+        # (thanks ChesuCR):
+        #   https://stackoverflow.com/a/49095082/920545
+
+        # We trigger the JS callback on a change to "tags" since that shouldn't
+        # affect anything else
+        js_code = r"""
+            alert("copy the following url to save this graph:\n" + url);
+        """
+        js_callback = CustomJS(code=js_code)
+        save_button.js_on_change("tags", js_callback)
+
+        def on_click():
+            querystr = self.model.entities.to_query()
+            # TODO: don't hardcode directory portion
+            host = self.doc.session_context.request.headers['Host']
+            url = f'http://{host}/covid19?{querystr}'
+
+            # we could change js_callback.code, but easier to change args
+            js_callback.args = {'url': url}
+
+            # now trigger the javascript, by changing tags
+            tags = save_button.tags
+            SENTINEL = 'click_toggle'
+            if SENTINEL in tags:
+                tags.remove(SENTINEL)
+            else:
+                tags.append(SENTINEL)
+            # this should trigger the javascript
+            save_button.tags = tags
+
+        save_button.on_click(on_click)
+
+        return save_button
 
     def build_entity_ui_row(self, entity):
         is_visible = self.model.entities.is_visible(entity)
@@ -720,7 +879,7 @@ class View(object):
 
     def update_plot(self, data):
         self.plot = self.make_plot(data)
-        self.main_layout.children[1] = self.plot
+        self.controls_plot.children[1] = self.plot
 
     def update_visibility(self):
         self.entities_ui = self.build_entity_ui_rows()
@@ -741,21 +900,16 @@ class Controller(object):
     def setView(self, view):
         self.view = view
 
-    def start(self):
+    def start(self, query=None):
         self.view.build()
 
         # initial entities to graph
-        initial_entities = [
-            Country('Italy'),
-            State('California'),
-            State('New York'),
-            County('Los Angeles', 'CA'),
-            County('New York City', 'NY'),
-        ]
-        # for the initial entities, add directly to model, so we don't do
-        # a bunch of repeated callbacks
-        for entity in initial_entities:
-            self.model.entities.add(entity)
+        if not query:
+            initial_entities = DEFAULT_INITIAL_ENTITIES
+            for entity in initial_entities:
+                self.model.entities.add(entity)
+        else:
+            self.model.entities = DisplayEntities.from_query(query)
 
         # update the visibility widget and the plot
         self.update_all_visible()
@@ -801,7 +955,8 @@ def modify_doc(doc):
     model = Model()
     view = View(doc, model)
     controller = Controller(model, view)
-    controller.start()
+    query = doc.session_context.request.arguments
+    controller.start(query=query)
 
 
 if __name__ == '__main__':
