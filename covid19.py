@@ -361,16 +361,16 @@ class OWIDCountryDeathsData(CountryDeathsData):
 
 
 ################################################################################
-# Country / State / County data types
+# Entities - Country / State / County data types
 
-class CommaJoinedTuple(object):
+class Entity(object):
     def __str__(self):
         return ', '.join(str(x) for x in self)
 
-class Country(CommaJoinedTuple, namedtuple('CountryBase', ['name'])):
+class Country(Entity, namedtuple('CountryBase', ['name'])):
     pass
 
-class State(CommaJoinedTuple, namedtuple('State', ['name'])):
+class State(Entity, namedtuple('State', ['name'])):
     def __new__(cls, *args, **kwargs):
         # force non-abbreviated name
         self = super().__new__(cls, *args, **kwargs)
@@ -378,7 +378,7 @@ class State(CommaJoinedTuple, namedtuple('State', ['name'])):
             self = State(abbrev_to_state[self.name])
         return self
 
-class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
+class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
     def __new__(cls, *args, **kwargs):
         # force abbreviated state name
         self = super().__new__(cls, *args, **kwargs)
@@ -390,82 +390,149 @@ class County(CommaJoinedTuple, namedtuple('CountyBase', ['name', 'state'])):
 ################################################################################
 # Bokeh application logic
 
-def modify_doc(doc):
-    doc.title = "Covid-19 Graphs"
+# Note - this may not fit the technical definition of a MVC design, but it's
+# an organization which made sense to me, and was easy to implement...
 
-    counties_data = CountyDeathsData.get()
-    states_data = StateDeathsData.get()
-    countries_data = OWIDCountryDeathsData.get()
+# Model
+class DisplayEntities(object):
+    def __init__(self):
+        self._countries = set()
+        self._states = set()
+        self._counties = set()
+        self._visible = set()
+        self._callbacks = {}
+        self._invalidate()
 
-    # initial items to graph
-    display_countries = {
-        Country('Italy'),
-    }
-    display_states = {
-        State('California'),
-        State('New York'),
-    }
-    display_counties = {
-        County('Los Angeles', 'CA'),
-        County('New York City', 'NY'),
-    }
-    display_all = []
+    def __iter__(self):
+        return iter(self.ordered())
 
-    to_color = {}
+    def __len__(self):
+        return len(self._countries) + len(self._states) + len(self._counties)
 
-    def update_colors():
-        to_color.clear()
-        to_color.update({
-            item: kelly_colors[i % len(kelly_colors)] for i, item in
-            enumerate(display_all)
-        })
+    def __getitem__(self, i):
+        return self.ordered()[i]
 
-    def update_all_display_items():
-        display_all[:] = sorted(display_countries) + sorted(display_states) \
-            + sorted(display_counties)
-        update_colors()
-
-    def add_display_item(item):
+    def __contains__(self, item):
         if isinstance(item, Country):
-            display_countries.add(item)
+            return item in self._countries
         elif isinstance(item, State):
-            display_states.add(item)
+            return item in self._states
         elif isinstance(item, County):
-            display_counties.add(item)
+            return item in self._counties
+        return False
+
+    def _invalidate(self):
+        self._ordered = None
+        self._indices = None
+        self._visible_ordered = None
+
+    def ordered(self):
+        if self._ordered is None:
+            self._ordered = sorted(self._countries) + sorted(self._states) \
+                            + sorted(self._counties)
+        return self._ordered
+
+    def indices(self):
+        if self._indices is None:
+            self._indices = {
+                entity: i for i, entity in enumerate(self.ordered())
+            }
+        return self._indices
+
+    def index(self, entity):
+        return self.indices()[entity]
+
+    def add(self, entity):
+        if isinstance(entity, Country):
+            self._countries.add(entity)
+        elif isinstance(entity, State):
+            self._states.add(entity)
+        elif isinstance(entity, County):
+            self._counties.add(entity)
         else:
             raise TypeError("must be a Country, State, or County - got: {!r}"
-                            .format(item))
-        update_all_display_items()
+                            .format(entity))
+        self.set_visibility(entity, True)
+        self._invalidate()
 
-    # update to show initial items
-    update_all_display_items()
+    def set_visibility(self, entity, is_visible):
+        if is_visible:
+            self._visible.add(entity)
+        else:
+            self._visible.remove(entity)
 
-    def make_dataset(items_to_plot):
+    def is_visible(self, entity):
+        return entity in self._visible
+
+    def set_all_visible(self, visible_entities):
+        self._visible.clear()
+        self._visible.update(visible_entities)
+        self._visible_ordered = None
+
+    def visible(self):
+        return set(self._visible)
+
+    def visible_ordered(self):
+        if self._visible_ordered is None:
+            self._visible_ordered = [x for x in self.ordered()
+                                     if x in self._visible]
+        return self._visible_ordered
+
+
+class Model(object):
+    '''Only holds data
+    Can be queried or altered, but has no knowledge of any other entities, or
+    logic for handling callbacks / notifications'''
+    def __init__(self):
+        self.counties_data = CountyDeathsData.get()
+        self.states_data = StateDeathsData.get()
+        self.countries_data = OWIDCountryDeathsData.get()
+        self.entities = DisplayEntities()
+
+    def graphable_countries(self):
+        return sorted(
+            self.countries_data[self.countries_data.deaths_per_million >= 1.0]
+                .country.unique()
+        )
+
+    def graphable_states(self):
+        return sorted(
+            self.states_data[self.states_data.deaths_per_million >= 1.0]
+                .state.unique()
+        )
+
+    def graphable_counties(self, state_name):
+        return sorted(
+            self.counties_data[
+                (self.counties_data.state == state_name)
+                & (self.counties_data.deaths_per_million >= 1.0)
+            ].county.unique()
+        )
+
+    def make_dataset(self):
+        counties = self.counties_data
+        states = self.states_data
+        countries = self.countries_data
+
         to_graph_by_date = []
-        for item in items_to_plot:
-            label = str(item)
-            if isinstance(item, County):
-                county, state_abbrev = item
+        for entity in self.entities.visible_ordered():
+            if isinstance(entity, County):
+                county, state_abbrev = entity
                 state = abbrev_to_state[state_abbrev]
-                county_data = counties_data[(counties_data.state == state) & (counties_data.county == county)]
-                assert len(county_data) > 0, f"no county data for {county}, {state}"
-                to_append = (label, county_data)
-
-            elif isinstance(item, State):
-                state = item.name
-                state_data = states_data[states_data.state == state]
-                assert len(state_data) > 0, f"no state data for {state}"
-                to_append = (label, state_data)
-
-            elif isinstance(item, Country):
-                country = item.name
-                country_data = countries_data[countries_data.country == country]
-                assert len(country_data) > 0, f"no country data for {country}"
-                to_append = (label, country_data)
+                data = counties[(counties.state == state)
+                                & (counties.county == county)]
+                assert len(data) > 0, f"no county data for {county}, {state}"
+            elif isinstance(entity, State):
+                state = entity.name
+                data = states[states.state == state]
+                assert len(data) > 0, f"no state data for {state}"
+            elif isinstance(entity, Country):
+                country = entity.name
+                data = countries[countries.country == country]
+                assert len(data) > 0, f"no country data for {country}"
             else:
-                raise TypeError(item)
-            to_append += (to_color[item],)
-            to_graph_by_date.append(to_append)
+                raise TypeError(entity)
+            to_graph_by_date.append((entity, data))
 
         def get_data_since(data, condition_func):
             condition = condition_func(data)
@@ -479,11 +546,141 @@ def modify_doc(doc):
 
         to_graph_by_since = []
 
-        for label, data, color in to_graph_by_date:
-            to_graph_by_since.append((label, get_data_since(data, deaths_per_mill_greater_1), color))
+        for entity, data in to_graph_by_date:
+            since_data = get_data_since(data, deaths_per_mill_greater_1)
+            to_graph_by_since.append((entity, since_data))
         return to_graph_by_since
 
-    def make_plot(data):
+
+class View(object):
+    '''Contains the bokeh UI items, and is responsible for altering them
+
+    May interact with model is a read-only manner'''
+    def __init__(self, doc, model):
+        self.model = model
+        self.doc = doc
+        self.controller = None
+
+    # utility methods
+
+    def color(self, entity):
+        i = self.model.entities.index(entity)
+        return kelly_colors[i % len(kelly_colors)]
+
+    def set_controller(self, controller):
+        self.controller = controller
+
+    # build
+
+    def build(self):
+        '''constructs the main layout'''
+        self.doc.title = "Covid-19 Graphs"
+
+        self.visibility_selection = self.build_visibility_selection()
+        self.add_entity_panel = self.build_add_entity_panel()
+
+        self.controls = column(self.visibility_selection,
+                               Div(text="<hr width=100>"),
+                               self.add_entity_panel)
+        # Create a row layout
+
+        # actual plot will be replace by make_plot when we have data, and
+        # are ready to draw
+        self.plot = figure(title="Dummy placeholder plot")
+        self.main_layout = row(self.controls, self.plot)
+        self.doc.add_root(self.main_layout)
+
+    def build_visibility_selection(self):
+        visible_indices = [i for i, entity in enumerate(self.model.entities)
+            if self.model.entities.is_visible(entity)]
+
+        def update_visible(attr, old_visible_indices, visible_indices):
+            del old_visible_indices
+            assert attr == 'active'
+            visible_entities = [self.model.entities[i] for i in visible_indices]
+            self.controller.update_visible(visible_entities, update_view=False)
+
+        visibility_selection = CheckboxGroup(
+            labels=[str(x) for x in self.model.entities],
+            active=visible_indices)
+
+        visibility_selection.on_change('active', update_visible)
+        return visibility_selection
+
+    def build_add_entity_panel(self):
+        # Country
+        all_countries = self.model.graphable_countries()
+        self.pick_country_dropdown = Select(
+            title="Country:", value="Spain", options=all_countries)
+        self.add_country_button = Button(label="Add Country")
+
+        def click_add_country():
+            self.controller.add_entity(
+                Country(self.pick_country_dropdown.value))
+
+        self.add_country_button.on_click(click_add_country)
+
+        # State
+        all_states = self.model.graphable_states()
+        self.pick_state_dropdown = Select(
+            title="US State:", value="California", options=all_states)
+        self.add_state_button = Button(label="Add State")
+
+        def click_add_state():
+            self.controller.add_entity(
+                State(self.pick_state_dropdown.value))
+
+        self.add_state_button.on_click(click_add_state)
+
+        # County
+
+        self.pick_county_dropdown = Select(title="US County:")
+        self.add_county_button = Button(label="Add County")
+
+        def click_add_county():
+            self.controller.add_entity(
+                County(self.pick_county_dropdown.value,
+                       self.pick_state_dropdown.value))
+
+        self.add_county_button.on_click(click_add_county)
+
+        # update county values when state changes
+
+        # Note that this callback is down here, because it does not involve
+        # changing any data external to the View
+        def pick_state_changed(attr, old_state, new_state):
+            assert attr == 'value'
+            del old_state
+            all_counties = self.model.graphable_counties(
+                self.pick_state_dropdown.value)
+            self.pick_county_dropdown.options = all_counties
+            self.pick_county_dropdown.value = all_counties[0]
+
+        self.pick_state_dropdown.on_change('value', pick_state_changed)
+
+        # setup initial counties list
+        pick_state_changed('value', None, self.pick_state_dropdown.value)
+
+        # Misc extra display elements
+        note1 = Paragraph(text="Note: graphable entities are filtered to"
+                               " only those that meet the minimum criteria")
+
+        spacer = Spacer(height=10)
+
+        return column(
+            self.pick_country_dropdown,
+            self.add_country_button,
+            spacer,
+            self.pick_state_dropdown,
+            self.add_state_button,
+            spacer,
+            self.pick_county_dropdown,
+            self.add_county_button,
+            spacer,
+            note1,
+        )
+
+    def make_plot(self, data):
         plot = figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
            y_axis_type='log')
@@ -491,112 +688,80 @@ def modify_doc(doc):
         # Want to enable this, but it makes graphs not display at all on iphone (chrome + safari)
         #plot.sizing_mode = 'scale_height'
 
-        for label, data, color in data:
-            plot.line(x='days', y='deaths_per_million', source=data,
-                   line_width=3, color=color, legend_label=label)
+        for entity, line_data in data:
+            plot.line(x='days', y='deaths_per_million', source=line_data,
+                      line_width=3, color=self.color(entity),
+                      legend_label=str(entity))
 
         plot.legend.location = "top_left"
         return plot
 
-    def update_vis(attr, old_vis, new_vis):
-        del old_vis
-        assert attr == 'active'
-        display_items = [display_all[i] for i in new_vis]
-        data = make_dataset(display_items)
-        plot = make_plot(data)
-        main_layout.children[1] = plot
+    def update_plot(self, data):
+        self.plot = self.make_plot(data)
+        self.main_layout.children[1] = self.plot
 
-    visibility_selection = CheckboxGroup(labels=[str(x) for x in display_all],
-                                         active=list(range(len(display_all))))
-    visibility_selection.on_change('active', update_vis)
+    def update_visibility(self):
+        self.visibility_selection = self.build_visibility_selection()
+        self.controls.children[0] = self.visibility_selection
 
-    spacer = Spacer(height=10)
 
-    def add_item_and_update(item):
-        if item in display_all:
-            return
-        add_display_item(item)
-        visible = set(visibility_selection.labels[i]
-                      for i in visibility_selection.active)
-        visible.add(str(item))
-        visibility_selection.labels = [str(x) for x in display_all]
-        visibility_selection.active = [
-            i for i, label in enumerate(visibility_selection.labels)
-            if label in visible
+class Controller(object):
+    '''Main class for making changes
+
+    Handles installation + coordination of callbacks / events.  All requests to
+    change state must go through here.
+    '''
+    def __init__(self, model, view):
+        self.model = model
+        self.view = view
+        self.view.set_controller(self)
+
+    def setView(self, view):
+        self.view = view
+
+    def start(self):
+        self.view.build()
+
+        # initial entities to graph
+        initial_entities = [
+            Country('Italy'),
+            State('California'),
+            State('New York'),
+            County('Los Angeles', 'CA'),
+            County('New York City', 'NY'),
         ]
-        update_vis('active', None, visibility_selection.active)
+        # for the initial entities, add directly to model, so we don't do
+        # a bunch of repeated callbacks
+        for entity in initial_entities:
+            self.model.entities.add(entity)
 
-    all_countries = sorted(
-        countries_data[countries_data.deaths_per_million >= 1.0]
-            .country.unique())
-    pick_country_dropdown = Select(title="Country:", value="Spain",
-                                   options=all_countries)
-    add_country_button = Button(label="Add Country")
-    def click_add_country():
-        add_item_and_update(Country(pick_country_dropdown.value))
-    add_country_button.on_click(click_add_country)
+        # update the visibility widget and the plot
+        self.update_visible()
 
-    all_states = sorted(
-        states_data[states_data.deaths_per_million >= 1.0].state.unique())
-    pick_state_dropdown = Select(title="US State:", value="California",
-                                 options=all_states)
-    add_state_button = Button(label="Add State")
+    def add_entity(self, entity):
+        if entity in self.model.entities:
+            return
+        self.model.entities.add(entity)
+        assert self.model.entities.is_visible(entity)
+        self.view.update_visibility()
+        self.update_plot()
 
-    def click_add_state():
-        add_item_and_update(State(pick_state_dropdown.value))
+    def update_plot(self):
+        self.view.update_plot(self.model.make_dataset())
 
-    add_state_button.on_click(click_add_state)
+    def update_visible(self, visible_entities=None, update_view=True):
+        if visible_entities is not None:
+            self.model.entities.set_all_visible(visible_entities)
+        if update_view:
+            self.view.update_visibility()
+        self.update_plot()
 
-    pick_county_dropdown = Select(title="US County:")
-    add_county_button = Button(label="Add County")
 
-    # update county values when state changes
-    def pick_state_changed(attr, old_state, new_state):
-        assert attr == 'value'
-        del old_state
-        all_counties = sorted(
-            counties_data[
-                (counties_data.state == new_state)
-                & (counties_data.deaths_per_million >= 1.0)
-            ].county.unique()
-        )
-        pick_county_dropdown.options = all_counties
-        pick_county_dropdown.value = all_counties[0]
-
-    pick_state_dropdown.on_change('value', pick_state_changed)
-    pick_state_changed('value', None, pick_state_dropdown.value)
-
-    def click_add_county():
-        add_item_and_update(County(pick_county_dropdown.value,
-                                   pick_state_dropdown.value))
-
-    add_county_button.on_click(click_add_county)
-
-    note1 = Paragraph(text="Note: graphable entities are filtered to"
-                           " only those that meet the minimum criteria")
-
-    # TODO: get US, Australia working
-    #   Get county picking working
-
-    add_item_panel = column(pick_country_dropdown, add_country_button,
-                            spacer,
-                            pick_state_dropdown, add_state_button,
-                            spacer,
-                            pick_county_dropdown, add_county_button,
-                            spacer,
-                            note1)
-
-    controls = column(visibility_selection,
-                      Div(text="<hr width=100>"),
-                      add_item_panel)
-
-    data = make_dataset(display_all)
-    plot = make_plot(data)
-
-    # Create a row layout
-    main_layout = row(controls, plot)
-
-    doc.add_root(main_layout)
+def modify_doc(doc):
+    model = Model()
+    view = View(doc, model)
+    controller = Controller(model, view)
+    controller.start()
 
 
 if __name__ == '__main__':
