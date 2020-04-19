@@ -469,7 +469,7 @@ class DisplayEntities(object):
         if is_visible:
             self._visible.add(entity)
         else:
-            self._visible.remove(entity)
+            self._visible.discard(entity)
         self._visible_ordered = None
 
     def is_visible(self, entity):
