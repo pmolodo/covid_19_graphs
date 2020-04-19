@@ -729,7 +729,7 @@ class View(object):
         # We trigger the JS callback on a change to "tags" since that shouldn't
         # affect anything else
         js_code = r"""
-            alert("copy the following url to save this graph:\n" + url);
+            prompt("Copy the following url to save this graph:", url);
         """
         js_callback = CustomJS(code=js_code)
         save_button.js_on_change("tags", js_callback)
