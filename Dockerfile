@@ -21,6 +21,6 @@ COPY ./environment.yml .
 RUN ${CONDA} env create -f environment.yml
 
 COPY . .
-ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80
+ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80,mycustomgraph.com:80
 CMD ["./run_server.bash"]
 
