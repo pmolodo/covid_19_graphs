@@ -154,20 +154,31 @@ class DataGrabber(abc.ABC):
     def retrieve(cls):
         raise NotImplementedError
 
-
 # County population data from us census
-#     https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
-#     https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv
+#   https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
 
 class USPopulationData(DataGrabber):
-    FILE = './co-est2019-alldata.csv'
+    LOCAL_FILE = './co-est2019-alldata.zip'
 
     @classmethod
     def retrieve(cls):
-        result = pandas.read_csv(cls.FILE, encoding='IBM850')
-        assert result[result.STNAME.str.contains(SEP)].empty
-        assert result[result.CTYNAME.str.contains(SEP)].empty
-        return result
+        # If we ever need to retrieve again, uncomment this:
+        # orig_url = 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv'
+        # orig_data = pandas.read_csv(orig_url, encoding='IBM850')
+        # trimmed_data = orig_data[(orig_data.SUMLEV == 40)
+        #                          | (orig_data.SUMLEV == 50)]
+        # trimmed_data = trimmed_data[[
+        #     'SUMLEV', 'STATE', 'COUNTY', 'STNAME', 'CTYNAME', 'POPESTIMATE2019']]
+        # compression_opts = {
+        #     'method': 'zip',
+        #     'archive_name': 'co-est2019-alldata.trimmed.csv',
+        # }
+        # trimmed_data.to_csv(cls.LOCAL_FILE, index=False,
+        #                     compression=compression_opts)
+        # assert trimmed_data[trimmed_data.STNAME.str.contains(SEP)].empty
+        # assert trimmed_data[trimmed_data.CTYNAME.str.contains(SEP)].empty
+
+        return pandas.read_csv(cls.LOCAL_FILE)
 
 
 class CountyPopulationData(DataGrabber):
@@ -221,30 +232,39 @@ class StatePopulationData(DataGrabber):
         })
         return state_pop_data.set_index('fips')
 
+# Country population estimates from the UN
+#   https://population.un.org/wpp/Download/Standard/CSV/
 
 class CountryPopulationData(DataGrabber):
-    FILE = './WPP2019_TotalPopulationBySex.csv'
+    LOCAL_FILE = './WPP2019_TotalPopulationBySex.zip'
 
     @classmethod
     def retrieve(cls):
-        # from https://population.un.org/wpp/Download/Standard/CSV/
-        un_pop_raw_data = pandas.read_csv(cls.FILE)
+        # If we ever need to retrieve again, uncomment this:
+        # orig_url = 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv'
+        # un_pop_raw_data = pandas.read_csv(orig_url)
+        # un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
+        # # all data <= 2019 is automatically in "medium" variant - VarID = 2
+        # drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
+        # un_pop_data = un_pop_data.drop(drop_columns, axis='columns')
+        # un_pop_data = un_pop_data.reset_index(drop=True)
+        # un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
+        # # un_pop_data is in thousands
+        # un_pop_data['population'] *= 1000
+        #
+        # # Use "United States" both because it's shorter, and it's what OWID uses
+        # un_pop_data = un_pop_data.replace(
+        #     {'United States of America': 'United States'})
+        # un_pop_data = un_pop_data.astype({'population': int})
+        # compression_opts = {
+        #     'method': 'zip',
+        #     'archive_name': 'WPP2019_TotalPopulationBySex.trimmed.csv',
+        # }
+        # assert un_pop_data[un_pop_data.country.str.contains(SEP)].empty
+        # un_pop_data.to_csv(cls.LOCAL_FILE, index=False,
+        #                    compression=compression_opts)
 
-        un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
-        # all data <= 2019 is automatically in "medium" variant - VarID = 2
-        drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
-        un_pop_data = un_pop_data.drop(drop_columns, axis='columns')
-        un_pop_data = un_pop_data.reset_index(drop=True)
-        un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
-        # un_pop_data is in thousands
-        un_pop_data['population'] *= 1000
-
-        # Use "United States" both because it's shorter, and it's what OWID uses
-        un_pop_data = un_pop_data.replace(
-            {'United States of America': 'United States'})
-        un_pop_data = un_pop_data.astype({'population': int})
-        assert un_pop_data[un_pop_data.country.str.contains(SEP)].empty
-        return un_pop_data
+        return pandas.read_csv(cls.LOCAL_FILE)
 
 
 class CountyDeathsData(DataGrabber):
