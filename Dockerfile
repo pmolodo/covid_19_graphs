@@ -22,7 +22,8 @@ RUN ${CONDA} env create -f environment.yml
 
 COPY co-est2019-alldata.zip ./
 COPY WPP2019_TotalPopulationBySex.zip ./
-COPY covid19 run_server.bash ./
+COPY run_server.bash ./
+COPY covid19 ./covid19
 ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80,mycustomgraph.com:80
 CMD ["./run_server.bash"]
 
