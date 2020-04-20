@@ -20,7 +20,9 @@ EXPOSE 80
 COPY ./environment.yml .
 RUN ${CONDA} env create -f environment.yml
 
-COPY *.csv covid19 run_server.bash ./
+COPY co-est2019-alldata.zip ./
+COPY WPP2019_TotalPopulationBySex.zip ./
+COPY covid19 run_server.bash ./
 ENV BOKEH_ALLOW_WS_ORIGIN phonymammoth.com:80,mycustomgraph.com:80
 CMD ["./run_server.bash"]
 
