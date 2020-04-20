@@ -738,7 +738,7 @@ class View(object):
         self.doc.add_root(self.main_layout)
 
     def build_save_button(self):
-        save_button = Button(label='Save/Share')
+        save_button = Button(label='Save/Share', button_type="success")
 
         # want to have a click call python code (to calculate the url), and
         # then javascript (to do the dialog)
