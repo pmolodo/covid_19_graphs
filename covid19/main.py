@@ -7,6 +7,9 @@
 import pandas
 
 import abc
+import inspect
+import os
+import pathlib
 import urllib
 
 from bokeh.application import Application
@@ -154,11 +157,21 @@ class DataGrabber(abc.ABC):
     def retrieve(cls):
         raise NotImplementedError
 
+    @classmethod
+    def local_file(cls):
+        # if we've imported as a module, use the path of this module
+        this_file = pathlib.Path(inspect.getsourcefile(DataGrabber))
+        if this_file.is_file():
+            return str(this_file.parent.parent / cls.LOCAL_FILE)
+        # otherwise, assume that cwd is the repo root!
+        return os.path.join('.', cls.LOCAL_FILE)
+
+
 # County population data from us census
 #   https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
 
 class USPopulationData(DataGrabber):
-    LOCAL_FILE = './co-est2019-alldata.zip'
+    LOCAL_FILE = 'co-est2019-alldata.zip'
 
     @classmethod
     def retrieve(cls):
@@ -173,12 +186,12 @@ class USPopulationData(DataGrabber):
         #     'method': 'zip',
         #     'archive_name': 'co-est2019-alldata.trimmed.csv',
         # }
-        # trimmed_data.to_csv(cls.LOCAL_FILE, index=False,
+        # trimmed_data.to_csv(cls.local_file(), index=False,
         #                     compression=compression_opts)
         # assert trimmed_data[trimmed_data.STNAME.str.contains(SEP)].empty
         # assert trimmed_data[trimmed_data.CTYNAME.str.contains(SEP)].empty
 
-        return pandas.read_csv(cls.LOCAL_FILE)
+        return pandas.read_csv(cls.local_file())
 
 
 class CountyPopulationData(DataGrabber):
@@ -236,7 +249,7 @@ class StatePopulationData(DataGrabber):
 #   https://population.un.org/wpp/Download/Standard/CSV/
 
 class CountryPopulationData(DataGrabber):
-    LOCAL_FILE = './WPP2019_TotalPopulationBySex.zip'
+    LOCAL_FILE = 'WPP2019_TotalPopulationBySex.zip'
 
     @classmethod
     def retrieve(cls):
@@ -261,10 +274,10 @@ class CountryPopulationData(DataGrabber):
         #     'archive_name': 'WPP2019_TotalPopulationBySex.trimmed.csv',
         # }
         # assert un_pop_data[un_pop_data.country.str.contains(SEP)].empty
-        # un_pop_data.to_csv(cls.LOCAL_FILE, index=False,
+        # un_pop_data.to_csv(cls.local_file(), index=False,
         #                    compression=compression_opts)
 
-        return pandas.read_csv(cls.LOCAL_FILE)
+        return pandas.read_csv(cls.local_file())
 
 
 class CountyDeathsData(DataGrabber):
@@ -988,6 +1001,6 @@ if __name__ == '__main__':
     #os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8888,servername.com:80'
 
     show(app)
-else:
+elif __name__.startswith('bokeh_app_'):
     from bokeh.plotting import curdoc
     modify_doc(curdoc())
