@@ -795,7 +795,7 @@ class View(object):
         vis_check.on_change('active', update_visible)
 
         spacer = Spacer(sizing_mode="stretch_width")
-        delete_button = Button(label="X", button_type="danger",
+        delete_button = Button(label="X", button_type="danger", max_height=25,
                                width_policy="min", height_policy="min")
 
         def remove_entity():
