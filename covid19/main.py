@@ -13,13 +13,10 @@ import os
 import pathlib
 import urllib
 
-from bokeh.application import Application
-from bokeh.application.handlers import FunctionHandler
-from bokeh.layouts import row, column
-from bokeh.models import Button, Column, CustomJS, Div, Label, Paragraph, Row,\
-    Select, Spacer, Title
-from bokeh.models.widgets import CheckboxGroup
-from bokeh.plotting import figure, show
+import bokeh.application.handlers
+import bokeh.layouts as lyt
+import bokeh.models as mdl
+import bokeh.plotting
 
 from collections import OrderedDict, namedtuple
 
@@ -745,26 +742,26 @@ class View(object):
         self.entities_ui = self.build_entity_ui_rows()
         self.add_entity_panel = self.build_add_entity_panel()
 
-        self.controls = column(self.entities_ui,
-                               Div(text="<hr width=100>"),
-                               self.add_entity_panel)
+        self.controls = lyt.column(self.entities_ui,
+                                   mdl.Div(text="<hr width=100>"),
+                                   self.add_entity_panel)
         self.controls.width_policy = "min"
         # Create a row layout
 
         # actual plot will be replace by make_plot when we have data, and
         # are ready to draw
-        self.plot = figure(title="Dummy placeholder plot")
+        self.plot = bokeh.plotting.figure(title="Dummy placeholder plot")
 
-        self.controls_plot = Row(self.controls, self.plot)
+        self.controls_plot = mdl.Row(self.controls, self.plot)
         self.controls_plot.sizing_mode = "stretch_both"
 
         self.save_button = self.build_save_button()
-        self.main_layout = Column(self.controls_plot, self.save_button,
-                                  sizing_mode='stretch_both')
+        self.main_layout = mdl.Column(self.controls_plot, self.save_button,
+                                      sizing_mode='stretch_both')
         self.doc.add_root(self.main_layout)
 
     def build_save_button(self):
-        save_button = Button(label='Save/Share', button_type="success")
+        save_button = mdl.Button(label='Save/Share', button_type="success")
 
         # want to have a click call python code (to calculate the url), and
         # then javascript (to do the dialog)
@@ -777,7 +774,7 @@ class View(object):
         js_code = r"""
             prompt("Copy the following url to save this graph:", url);
         """
-        js_callback = CustomJS(code=js_code)
+        js_callback = mdl.CustomJS(code=js_code)
         save_button.js_on_change("tags", js_callback)
 
         def on_click():
@@ -809,8 +806,8 @@ class View(object):
             active = [0]
         else:
             active = []
-        vis_check = CheckboxGroup(labels=[str(entity)], active=active,
-                                  width_policy="min")
+        vis_check = mdl.CheckboxGroup(labels=[str(entity)], active=active,
+                                      width_policy="min")
 
         def update_visible(attr, old_visible_indices, visible_indices):
             del old_visible_indices
@@ -820,28 +817,29 @@ class View(object):
 
         vis_check.on_change('active', update_visible)
 
-        spacer = Spacer(sizing_mode="stretch_width")
-        delete_button = Button(label="X", button_type="danger", max_height=25,
-                               width_policy="min", height_policy="min")
+        spacer = mdl.Spacer(sizing_mode="stretch_width")
+        delete_button = mdl.Button(label="X", button_type="danger",
+                                   max_height=25, width_policy="min",
+                                   height_policy="min")
 
         def remove_entity():
             self.controller.remove_entity(entity)
 
         delete_button.on_click(remove_entity)
 
-        return row(vis_check, spacer, delete_button)
+        return lyt.row(vis_check, spacer, delete_button)
 
     def build_entity_ui_rows(self):
         rows = [self.build_entity_ui_row(e) for e in self.model.entities]
-        entity_column = column(rows, width_policy="max")
+        entity_column = lyt.column(rows, width_policy="max")
         return entity_column
 
     def build_add_entity_panel(self):
         # Country
         all_countries = self.model.graphable_countries()
-        self.pick_country_dropdown = Select(
+        self.pick_country_dropdown = mdl.Select(
             title="Country:", value="Spain", options=all_countries)
-        self.add_country_button = Button(label="Add Country")
+        self.add_country_button = mdl.Button(label="Add Country")
 
         def click_add_country():
             self.controller.add_entity(
@@ -851,9 +849,9 @@ class View(object):
 
         # State
         all_states = self.model.graphable_states()
-        self.pick_state_dropdown = Select(
+        self.pick_state_dropdown = mdl.Select(
             title="US State:", value="California", options=all_states)
-        self.add_state_button = Button(label="Add State")
+        self.add_state_button = mdl.Button(label="Add State")
 
         def click_add_state():
             self.controller.add_entity(
@@ -863,8 +861,8 @@ class View(object):
 
         # County
 
-        self.pick_county_dropdown = Select(title="US County:")
-        self.add_county_button = Button(label="Add County")
+        self.pick_county_dropdown = mdl.Select(title="US County:")
+        self.add_county_button = mdl.Button(label="Add County")
 
         def click_add_county():
             self.controller.add_entity(
@@ -891,12 +889,12 @@ class View(object):
         pick_state_changed('value', None, self.pick_state_dropdown.value)
 
         # Misc extra display elements
-        note1 = Paragraph(text="Note: graphable entities are filtered to"
-                               " only those that meet the minimum criteria")
+        note1 = mdl.Paragraph(text="Note: graphable entities are filtered to"
+                                   " only those that meet the minimum criteria")
 
-        spacer = Spacer(height=10)
+        spacer = mdl.Spacer(height=10)
 
-        return column(
+        return lyt.column(
             self.pick_country_dropdown,
             self.add_country_button,
             spacer,
@@ -910,13 +908,13 @@ class View(object):
         )
 
     def make_plot(self, data):
-        plot = figure(title="Covid 19 - deaths since 1/million",
+        plot = bokeh.plotting.figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
            y_axis_type='log')
         update_time = self.model.update_time()
         updated_str = update_time.strftime('Updated: %a, %x %X')
-        updated = Title(text=updated_str, align="right",
-                        text_font_size="8pt", text_font_style="normal")
+        updated = mdl.Title(text=updated_str, align="right",
+                            text_font_size="8pt", text_font_style="normal")
         plot.add_layout(updated, "below")
 
         for entity, line_data in data:
@@ -1012,13 +1010,13 @@ def modify_doc(doc):
 
 if __name__ == '__main__':
     # Set up an application
-    handler = FunctionHandler(modify_doc)
-    app = Application(handler)
+    handler = bokeh.application.handlers.FunctionHandler(modify_doc)
+    app = bokeh.application.Application(handler)
 
     # add something like this to the environment of a server
     #os.environ['BOKEH_ALLOW_WS_ORIGIN'] = 'localhost:8888,servername.com:80'
 
-    show(app)
+    bokeh.plotting.show(app)
 elif __name__.startswith('bokeh_app_'):
     from bokeh.plotting import curdoc
     modify_doc(curdoc())
