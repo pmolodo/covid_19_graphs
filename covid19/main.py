@@ -7,6 +7,7 @@
 import pandas
 
 import abc
+import datetime
 import inspect
 import os
 import pathlib
@@ -15,8 +16,8 @@ import urllib
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
 from bokeh.layouts import row, column
-from bokeh.models import Button, Column, CustomJS, Div, Paragraph, Row, Select,\
-    Spacer
+from bokeh.models import Button, Column, CustomJS, Div, Label, Paragraph, Row,\
+    Select, Spacer, Title
 from bokeh.models.widgets import CheckboxGroup
 from bokeh.plotting import figure, show
 
@@ -145,6 +146,7 @@ kelly_colors = list(kelly_colors_dict.values())
 class DataGrabber(abc.ABC):
 
     _data = None
+    _update_time = None
 
     @classmethod
     def get(cls):
@@ -153,8 +155,15 @@ class DataGrabber(abc.ABC):
         return cls._data
 
     @classmethod
-    @abc.abstractmethod
     def retrieve(cls):
+        result = cls._retrieve()
+        cls._update_time = datetime.datetime.now()
+        result.update_time = cls._update_time
+        return result
+
+    @classmethod
+    @abc.abstractmethod
+    def _retrieve(cls):
         raise NotImplementedError
 
     @classmethod
@@ -174,7 +183,7 @@ class USPopulationData(DataGrabber):
     LOCAL_FILE = 'co-est2019-alldata.zip'
 
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         # If we ever need to retrieve again, uncomment this:
         # orig_url = 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv'
         # orig_data = pandas.read_csv(orig_url, encoding='IBM850')
@@ -196,7 +205,7 @@ class USPopulationData(DataGrabber):
 
 class CountyPopulationData(DataGrabber):
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         all_pop_data = USPopulationData.get()
 
         county_pop_data = all_pop_data[all_pop_data.SUMLEV == 50][
@@ -232,7 +241,7 @@ class CountyPopulationData(DataGrabber):
 
 class StatePopulationData(DataGrabber):
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         all_pop_data = USPopulationData.get()
 
         state_pop_data = all_pop_data[all_pop_data.SUMLEV == 40][
@@ -252,7 +261,7 @@ class CountryPopulationData(DataGrabber):
     LOCAL_FILE = 'WPP2019_TotalPopulationBySex.zip'
 
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         # If we ever need to retrieve again, uncomment this:
         # orig_url = 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv'
         # un_pop_raw_data = pandas.read_csv(orig_url)
@@ -284,7 +293,7 @@ class CountyDeathsData(DataGrabber):
     URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
 
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         counties_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
 
         #nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
@@ -325,7 +334,7 @@ class StateDeathsData(DataGrabber):
     URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv'
 
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         states_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
         states_data = states_raw_data.astype({'fips': int})
 
@@ -355,7 +364,7 @@ class StateDeathsData(DataGrabber):
 
 class CountryDeathsData(DataGrabber):
     @classmethod
-    def retrieve(cls):
+    def _retrieve(cls):
         country_deaths_data = cls._retrieve_raw()
 
         un_pop_data = CountryPopulationData.get()
@@ -642,6 +651,10 @@ class Model(object):
         self.countries_data = OWIDCountryDeathsData.get()
         self.entities = DisplayEntities()
 
+    def update_time(self):
+        return max(x.update_time for x in
+                   [self.counties_data, self.states_data, self.countries_data])
+
     def graphable_countries(self):
         return sorted(
             self.countries_data[self.countries_data.deaths_per_million >= 1.0]
@@ -900,6 +913,11 @@ class View(object):
         plot = figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
            y_axis_type='log')
+        update_time = self.model.update_time()
+        updated_str = update_time.strftime('Updated: %a, %x %X')
+        updated = Title(text=updated_str, align="right",
+                        text_font_size="8pt", text_font_style="normal")
+        plot.add_layout(updated, "below")
 
         for entity, line_data in data:
             plot.line(x='days', y='deaths_per_million', source=line_data,
