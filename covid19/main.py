@@ -181,6 +181,13 @@ class DataGrabber(abc.ABC):
         raise NotImplementedError
 
     @classmethod
+    def max_date(cls):
+        if 'date' in cls._data.columns:
+            return cls._data.date.max()
+        return None
+
+    # TODO: this should probably be moved into it's own subclass...?
+    @classmethod
     def local_file(cls):
         # if we've imported as a module, use the path of this module
         this_file = pathlib.Path(inspect.getsourcefile(DataGrabber))
@@ -1037,6 +1044,11 @@ class View(object):
             links = ['<a href="{}">{}</a>'.format(url, name)
                      for name, url in grabber.source_urls().items()]
             links = ', '.join(links)
+            print(grabber)
+            date = grabber.max_date()
+            if date is not None:
+                date = date.strftime('%a, %x')
+                lines.append('Most recent data: {}'.format(date))
             lines.append('Links: {}'.format(links))
             divs.append(mdl.Div(text='<br>'.join(lines)))
         return lyt.column(divs)
