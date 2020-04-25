@@ -745,11 +745,17 @@ class Model(object):
     '''Only holds data
     Can be queried or altered, but has no knowledge of any other entities, or
     logic for handling callbacks / notifications'''
+
+    DEFAULT_OPTIONS = {
+        'log': True,
+    }
+
     def __init__(self):
         self.counties_data = CountyDeathsData.get()
         self.states_data = StateDeathsData.get()
         self.countries_data = OWIDCountryDeathsData.get()
         self.entities = DisplayEntities()
+        self.options = dict(self.DEFAULT_OPTIONS)
 
     def last_update_time(self):
         return max(x.grabber.last_update_time for x in
@@ -844,10 +850,15 @@ class View(object):
     '''Contains the bokeh UI items, and is responsible for altering them
 
     May interact with model is a read-only manner'''
+
+    LOG_NAME = 'logarithmic'
+    LIN_NAME = 'linear'
+
     def __init__(self, doc, model):
         self.model = model
         self.doc = doc
         self.controller = None
+        self._last_data = None
 
     # utility methods
 
@@ -867,15 +878,18 @@ class View(object):
         self.entities_layout = lyt.column([], width_policy="max")
         self.build_entity_ui_rows(self.entities_layout)
         self.add_entity_layout = self.build_add_entity_layout()
+        self.options_layout = self.build_options_layout()
         self.sources_layout = self.build_sources_layout()
 
         # Make tabs
         self.view_tab = mdl.Panel(child=self.entities_layout,
                                   title='View/Remove')
         self.add_tab = mdl.Panel(child=self.add_entity_layout, title='Add')
+        self.options_tab = mdl.Panel(child=self.options_layout, title='Options')
         self.sources_tab = mdl.Panel(child=self.sources_layout, title='Info')
         self.tabs = mdl.Tabs(tabs=[self.view_tab,
                                    self.add_tab,
+                                   self.options_tab,
                                    self.sources_tab])
         for tab in self.tabs.tabs:
             tab.child.width_policy = 'min'
@@ -1041,6 +1055,20 @@ class View(object):
             note1,
         )
 
+    def build_options_layout(self):
+        self.log_select = mdl.Select(
+            title="Graph scaling:", value="log",
+            options=[self.LOG_NAME, self.LIN_NAME])
+
+        def log_select_changed(attr, old_state, new_state):
+            assert attr == 'value'
+            del old_state
+            self.controller.set_log(new_state == self.LOG_NAME)
+
+        self.log_select.on_change('value', log_select_changed)
+
+        return lyt.row([self.log_select])
+
     def build_sources_layout(self):
         grabbers = [
             USPopulationData,
@@ -1068,10 +1096,13 @@ class View(object):
             divs.append(mdl.Div(text='<br>'.join(lines)))
         return lyt.column(divs)
 
+    def get_y_axis_option(self):
+        return 'log' if self.model.options['log'] else 'linear'
+
     def make_plot(self, data):
         plot = bokeh.plotting.figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
-           y_axis_type='log')
+           y_axis_type=self.get_y_axis_option())
         user_agent = self.doc.session_context.request.headers.get('User-Agent')
         is_mobile = is_mobile_agent(user_agent)
         if is_mobile:
@@ -1095,7 +1126,15 @@ class View(object):
         plot.sizing_mode = "stretch_both"
         return plot
 
-    def update_plot(self, data):
+    def update_plot(self, data=None):
+        if data is None:
+            if self._last_data is None:
+                raise RuntimeError(
+                    "The first time {}.update_plot is called, the data arg must"
+                    " be supplied".format(type(self).__name__))
+            data = self._last_data
+        else:
+            self._last_data = data
         self.plot = self.make_plot(data)
         self.controls_plot.children[1] = self.plot
 
@@ -1140,6 +1179,15 @@ class Controller(object):
         self.model.entities.remove(entity)
         self.view.update_visibility()
         self.update_plot()
+
+    def set_log(self, is_log):
+        self.model.options['log'] = is_log
+        # I wanted to make a more targeted "update_log" or similar, but it
+        # seems the bokeh.Figure has no easy way to change from log to linear
+        # after it's built - all the logic is in the __init__.  Technically,
+        # I could try to reproduce that logic, and set the lower level values
+        # myself... but safer to just recreate the entire plot
+        self.view.update_plot()
 
     def update_plot(self):
         self.view.update_plot(self.model.make_dataset())
