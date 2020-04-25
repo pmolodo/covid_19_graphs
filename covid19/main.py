@@ -156,7 +156,7 @@ def is_mobile_agent(user_agent):
 class DataGrabber(abc.ABC):
 
     _data = None
-    update_time = None
+    last_update_time = None
 
     @classmethod
     def get(cls):
@@ -169,7 +169,7 @@ class DataGrabber(abc.ABC):
     @classmethod
     def retrieve(cls):
         result = cls._retrieve()
-        cls.update_time = datetime.datetime.now()
+        cls.last_update_time = datetime.datetime.now()
         result.grabber = cls
         return result
 
@@ -751,8 +751,8 @@ class Model(object):
         self.countries_data = OWIDCountryDeathsData.get()
         self.entities = DisplayEntities()
 
-    def update_time(self):
-        return max(x.grabber.update_time for x in
+    def last_update_time(self):
+        return max(x.grabber.last_update_time for x in
                    [self.counties_data, self.states_data, self.countries_data])
 
     def graphable_countries(self):
@@ -1080,8 +1080,8 @@ class View(object):
             plot.toolbar.active_drag = None
             plot.toolbar.active_scroll = None
 
-        update_time = self.model.update_time()
-        updated_str = update_time.strftime('Updated: %a, %x %X')
+        last_update_time = self.model.last_update_time()
+        updated_str = last_update_time.strftime('Updated: %a, %x %X')
         updated = mdl.Title(text=updated_str, align="right",
                             text_font_size="8pt", text_font_style="normal")
         plot.add_layout(updated, "below")
