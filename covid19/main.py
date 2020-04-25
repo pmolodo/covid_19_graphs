@@ -740,26 +740,6 @@ class DisplayEntities(object):
         return cls(countries=countries, states=states, counties=counties,
                    hidden=hidden)
 
-    def to_query(self):
-        as_dict = self.serialize()
-        return urllib.parse.urlencode(as_dict, doseq=True)
-
-    @classmethod
-    def from_query(cls, parsed_query):
-        # unlike urllib.parse.urlencode, whatever bokeh uses to get
-        # it's args back doesn't handle str (unicode), and leaves things as
-        # bytes... so first, need to convert everything to str
-        parsed_query = {key: [x.decode('utf-8') for x in val]
-                        for key, val in parsed_query.items()}
-
-        # only thing we need to do is convert otherwise is hidden indices from
-        # str to int, since urllib.parse.urlencode doesn't preserve type
-        hidden = parsed_query.pop('hidden', None)
-        if hidden:
-            hidden = [int(x) for x in hidden]
-            parsed_query['hidden'] = hidden
-        return cls.deserialize(parsed_query)
-
 
 class Model(object):
     '''Only holds data
@@ -837,6 +817,28 @@ class Model(object):
             to_graph_by_since.append((entity, since_data))
         return to_graph_by_since
 
+    def serialize(self):
+        return self.entities.serialize()
+
+    def to_query(self):
+        as_dict = self.serialize()
+        return urllib.parse.urlencode(as_dict, doseq=True)
+
+    def set_from_query(self, parsed_query):
+        # unlike urllib.parse.urlencode, whatever bokeh uses to get
+        # it's args back doesn't handle str (unicode), and leaves things as
+        # bytes... so first, need to convert everything to str
+        parsed_query = {key: [x.decode('utf-8') for x in val]
+                        for key, val in parsed_query.items()}
+
+        # otherwise, only thing we need to convert is hidden indices, from
+        # str to int, since urllib.parse.urlencode doesn't preserve type
+        hidden = parsed_query.pop('hidden', None)
+        if hidden:
+            hidden = [int(x) for x in hidden]
+            parsed_query['hidden'] = hidden
+        self.entities = DisplayEntities.deserialize(parsed_query)
+
 
 class View(object):
     '''Contains the bokeh UI items, and is responsible for altering them
@@ -911,7 +913,7 @@ class View(object):
         save_button.js_on_change("tags", js_callback)
 
         def on_click():
-            querystr = self.model.entities.to_query()
+            querystr = self.model.to_query()
             # TODO: don't hardcode directory portion
             host = self.doc.session_context.request.headers['Host']
             url = f'http://{host}/covid19?{querystr}'
@@ -1124,7 +1126,7 @@ class Controller(object):
             for entity in initial_entities:
                 self.model.entities.add(entity)
         else:
-            self.model.entities = DisplayEntities.from_query(query)
+            self.model.set_from_query(query)
 
         # update the visibility widget and the plot
         self.update_all_visible()
@@ -1163,7 +1165,6 @@ class Controller(object):
             self.view.update_visibility()
         if update_plot:
             self.update_plot()
-
 
 
 def modify_doc(doc):
