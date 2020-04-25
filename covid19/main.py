@@ -739,19 +739,20 @@ class View(object):
         '''constructs the main layout'''
         self.doc.title = "Covid-19 Graphs"
 
-        self.entities_ui = lyt.column([], width_policy="max")
-        self.build_entity_ui_rows(self.entities_ui)
-        self.add_entity_panel = self.build_add_entity_panel()
+        self.entities_layout = lyt.column([], width_policy="max")
+        self.build_entity_ui_rows(self.entities_layout)
+        self.add_entity_layout = self.build_add_entity_layout()
 
         # Make tabs
-        self.view_tab = mdl.Panel(child=self.entities_ui, title='View/Remove')
-        self.add_tab = mdl.Panel(child=self.add_entity_panel, title='Add')
+        self.view_tab = mdl.Panel(child=self.entities_layout,
+                                  title='View/Remove')
+        self.add_tab = mdl.Panel(child=self.add_entity_layout, title='Add')
         self.tabs = mdl.Tabs(tabs=[self.view_tab, self.add_tab])
-        self.entities_ui.width_policy = 'min'
-        self.add_entity_panel.width_policy = 'min'
+        self.entities_layout.width_policy = 'min'
+        self.add_entity_layout.width_policy = 'min'
         self.tabs.width_policy = 'min'
 
-        # Create a row layout for tabbed controls + plot
+        # Create a row layout for tabs + plot
 
         # actual plot will be replace by make_plot when we have data, and
         # are ready to draw
@@ -834,11 +835,11 @@ class View(object):
 
         return lyt.row(vis_check, spacer, delete_button)
 
-    def build_entity_ui_rows(self, entity_column):
-        entity_column.children = [self.build_entity_ui_row(e)
+    def build_entity_ui_rows(self, entity_layout):
+        entity_layout.children = [self.build_entity_ui_row(e)
                                   for e in self.model.entities]
 
-    def build_add_entity_panel(self):
+    def build_add_entity_layout(self):
         # Country
         all_countries = self.model.graphable_countries()
         self.pick_country_dropdown = mdl.Select(
@@ -935,7 +936,7 @@ class View(object):
         self.controls_plot.children[1] = self.plot
 
     def update_visibility(self):
-        self.build_entity_ui_rows(self.entities_ui)
+        self.build_entity_ui_rows(self.entities_layout)
 
 
 class Controller(object):
