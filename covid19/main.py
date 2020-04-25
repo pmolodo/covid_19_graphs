@@ -1114,9 +1114,6 @@ class Controller(object):
         self.view = view
         self.view.set_controller(self)
 
-    def setView(self, view):
-        self.view = view
-
     def start(self, query=None):
         self.view.build()
 
