@@ -143,20 +143,37 @@ kelly_colors = list(kelly_colors_dict.values())
 class DataGrabber(abc.ABC):
 
     _data = None
-    _update_time = None
+    update_time = None
 
     @classmethod
     def get(cls):
-        if cls._data is None:
+        # Want to make sure we this the _data on THIS class, not any parent
+        # classes...
+        if '_data' not in cls.__dict__:
             cls._data = cls.retrieve()
         return cls._data
 
     @classmethod
     def retrieve(cls):
         result = cls._retrieve()
-        cls._update_time = datetime.datetime.now()
-        result.update_time = cls._update_time
+        cls.update_time = datetime.datetime.now()
+        result.grabber = cls
         return result
+
+    @classmethod
+    @abc.abstractmethod
+    def data_name(cls):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def source_name(cls):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def source_urls(cls):
+        raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
@@ -173,11 +190,23 @@ class DataGrabber(abc.ABC):
         return os.path.join('.', cls.LOCAL_FILE)
 
 
-# County population data from us census
-#   https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902
-
 class USPopulationData(DataGrabber):
     LOCAL_FILE = 'co-est2019-alldata.zip'
+
+    @classmethod
+    def data_name(cls):
+        return "US Population Data"
+
+    @classmethod
+    def source_name(cls):
+        return "United States Census Bureau"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902',
+            'data': 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv',
+        }
 
     @classmethod
     def _retrieve(cls):
@@ -200,7 +229,11 @@ class USPopulationData(DataGrabber):
         return pandas.read_csv(cls.local_file())
 
 
-class CountyPopulationData(DataGrabber):
+class CountyPopulationData(USPopulationData):
+    @classmethod
+    def data_name(cls):
+        return "US County Population Data"
+
     @classmethod
     def _retrieve(cls):
         all_pop_data = USPopulationData.get()
@@ -236,7 +269,11 @@ class CountyPopulationData(DataGrabber):
         return county_pop_data
 
 
-class StatePopulationData(DataGrabber):
+class StatePopulationData(USPopulationData):
+    @classmethod
+    def data_name(cls):
+        return "US State Population Data"
+
     @classmethod
     def _retrieve(cls):
         all_pop_data = USPopulationData.get()
@@ -256,6 +293,21 @@ class StatePopulationData(DataGrabber):
 
 class CountryPopulationData(DataGrabber):
     LOCAL_FILE = 'WPP2019_TotalPopulationBySex.zip'
+
+    @classmethod
+    def data_name(cls):
+        return "Global Country Population Data"
+
+    @classmethod
+    def source_name(cls):
+        return "United Nations Department of Economic and Social Affairs"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://population.un.org/wpp/Download/Standard/CSV/',
+            'data': 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv',
+        }
 
     @classmethod
     def _retrieve(cls):
@@ -287,11 +339,25 @@ class CountryPopulationData(DataGrabber):
 
 
 class CountyDeathsData(DataGrabber):
-    URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
+    @classmethod
+    def data_name(cls):
+        return "US County Deaths Data"
+
+    @classmethod
+    def source_name(cls):
+        return "New York Times Covid-19 Data"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
+            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv',
+        }
 
     @classmethod
     def _retrieve(cls):
-        counties_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+        counties_raw_data = pandas.read_csv(cls.source_urls()['data'],
+                                            parse_dates=['date'])
 
         #nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
         #nycity_data.fips = NYCITY_FIPS
@@ -328,11 +394,25 @@ class CountyDeathsData(DataGrabber):
 
 
 class StateDeathsData(DataGrabber):
-    URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv'
+    @classmethod
+    def data_name(cls):
+        return "US State Deaths Data"
+
+    @classmethod
+    def source_name(cls):
+        return "New York Times Covid-19 Data"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
+            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv',
+        }
 
     @classmethod
     def _retrieve(cls):
-        states_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+        states_raw_data = pandas.read_csv(cls.source_urls()['data'],
+                                          parse_dates=['date'])
         states_data = states_raw_data.astype({'fips': int})
 
         state_pop_data = StatePopulationData.get()
@@ -361,6 +441,10 @@ class StateDeathsData(DataGrabber):
 
 class CountryDeathsData(DataGrabber):
     @classmethod
+    def data_name(cls):
+        return "Country Deaths Data"
+
+    @classmethod
     def _retrieve(cls):
         country_deaths_data = cls._retrieve_raw()
 
@@ -387,11 +471,20 @@ class CountryDeathsData(DataGrabber):
 # Currently not used - doesn't have data for US, or summed data for Australia,
 # and a few other countries
 class JHUCountryDeathsData(CountryDeathsData):
-    URL = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
+    @classmethod
+    def source_name(cls):
+        return "Johns Hopkins University Center for Systems Science and Engineering"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://github.com/CSSEGISandData/COVID-19',
+            'data': 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv',
+        }
 
     @classmethod
     def _retrieve_raw(cls):
-        country_deaths_raw_data = pandas.read_csv(cls.URL)
+        country_deaths_raw_data = pandas.read_csv(cls.source_urls()['data'])
         country_deaths_data = country_deaths_raw_data.rename(columns={
             'Country/Region': 'country',
             'Province/State': 'province',
@@ -405,11 +498,21 @@ class JHUCountryDeathsData(CountryDeathsData):
 
 
 class OWIDCountryDeathsData(CountryDeathsData):
-    URL = 'https://covid.ourworldindata.org/data/ecdc/full_data.csv'
+    @classmethod
+    def source_name(cls):
+        return "Our World In Data"
+
+    @classmethod
+    def source_urls(cls):
+        return {
+            'site': 'https://github.com/owid/covid-19-data/tree/master/public/data',
+            'data': 'https://covid.ourworldindata.org/data/ecdc/full_data.csv',
+        }
 
     @classmethod
     def _retrieve_raw(cls):
-        country_deaths_raw_data = pandas.read_csv(cls.URL, parse_dates=['date'])
+        country_deaths_raw_data = pandas.read_csv(cls.source_urls()['data'],
+                                                  parse_dates=['date'])
         country_deaths_data = country_deaths_raw_data.rename(columns={
             'location': 'country',
             'total_deaths': 'deaths',
@@ -649,7 +752,7 @@ class Model(object):
         self.entities = DisplayEntities()
 
     def update_time(self):
-        return max(x.update_time for x in
+        return max(x.grabber.update_time for x in
                    [self.counties_data, self.states_data, self.countries_data])
 
     def graphable_countries(self):
@@ -742,14 +845,18 @@ class View(object):
         self.entities_layout = lyt.column([], width_policy="max")
         self.build_entity_ui_rows(self.entities_layout)
         self.add_entity_layout = self.build_add_entity_layout()
+        self.sources_layout = self.build_sources_layout()
 
         # Make tabs
         self.view_tab = mdl.Panel(child=self.entities_layout,
                                   title='View/Remove')
         self.add_tab = mdl.Panel(child=self.add_entity_layout, title='Add')
-        self.tabs = mdl.Tabs(tabs=[self.view_tab, self.add_tab])
-        self.entities_layout.width_policy = 'min'
-        self.add_entity_layout.width_policy = 'min'
+        self.sources_tab = mdl.Panel(child=self.sources_layout, title='Info')
+        self.tabs = mdl.Tabs(tabs=[self.view_tab,
+                                   self.add_tab,
+                                   self.sources_tab])
+        for tab in self.tabs.tabs:
+            tab.child.width_policy = 'min'
         self.tabs.width_policy = 'min'
 
         # Create a row layout for tabs + plot
@@ -911,6 +1018,28 @@ class View(object):
             spacer,
             note1,
         )
+
+    def build_sources_layout(self):
+        grabbers = [
+            USPopulationData,
+            CountryPopulationData,
+            CountyDeathsData,
+            StateDeathsData,
+            # Currently not used
+            # JHUCountryDeathsData,
+            OWIDCountryDeathsData,
+        ]
+        divs = []
+        for grabber in grabbers:
+            lines = []
+            lines.append('{} from:'.format(grabber.data_name()))
+            lines.append('{}'.format(grabber.source_name()))
+            links = ['<a href="{}">{}</a>'.format(url, name)
+                     for name, url in grabber.source_urls().items()]
+            links = ', '.join(links)
+            lines.append('Links: {}'.format(links))
+            divs.append(mdl.Div(text='<br>'.join(lines)))
+        return lyt.column(divs)
 
     def make_plot(self, data):
         plot = bokeh.plotting.figure(title="Covid 19 - deaths since 1/million",
