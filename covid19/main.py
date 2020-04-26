@@ -1087,7 +1087,6 @@ class View(object):
             links = ['<a href="{}">{}</a>'.format(url, name)
                      for name, url in grabber.source_urls().items()]
             links = ', '.join(links)
-            print(grabber)
             date = grabber.max_date()
             if date is not None:
                 date = date.strftime('%a, %x')
