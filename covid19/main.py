@@ -588,8 +588,102 @@ DEFAULT_INITIAL_ENTITIES = [
 ################################################################################
 # Bokeh application logic
 
-# Model
-class DisplayEntities(object):
+class QuerySerializeable(abc.ABC):
+    '''Mixin class that defines how to serialize to and from a query string'''
+
+    @classmethod
+    @abc.abstractmethod
+    def valid_query_keys(cls):
+        '''Return a set of all allowable keys that may be in to_query_dict
+        '''
+        raise NotImplementedError
+
+    def to_query_dict(self):
+        '''Returns a dict that may be passed to urllib.parse.urlencode
+
+        ...with doseq=True
+        '''
+        query_dict = self._to_query_dict()
+        assert not (set(query_dict) - self.valid_query_keys())
+        return query_dict
+
+    @abc.abstractmethod
+    def _to_query_dict(self):
+        '''Overriddeable implementation for to_query_dict'''
+        raise NotImplementedError
+
+    @classmethod
+    def from_query(cls, query_dict):
+        '''Given a dict that was parsed from a query string, return an instance
+        of this class.
+        '''
+        assert not (set(query_dict) - cls.valid_query_keys())
+        return cls._from_query(query_dict)
+
+    @classmethod
+    @abc.abstractmethod
+    def _from_query(cls, query_dict):
+        '''Overriddeable implementation for from_query'''
+        raise NotImplementedError
+
+
+Option = namedtuple('Option', ['name', 'default', 'type'])
+
+class Options(QuerySerializeable):
+    OPTIONS_LIST = [
+        Option('log', True, bool),
+    ]
+
+    OPTIONS = {x.name: x for x in OPTIONS_LIST}
+
+    # check for duplicate names
+    assert len(OPTIONS) == len(OPTIONS_LIST)
+
+    @classmethod
+    def valid_query_keys(cls):
+        return set(cls.OPTIONS)
+
+    def _to_query_dict(self):
+        as_dict = {}
+        for name, val in self._values.items():
+            option = self.OPTIONS[name]
+            if val != option.default:
+                # devise alternative if if-branching gets unwieldy
+                if option.type is bool:
+                    # because it's more compact, convert to 0/1
+                    val = int(val)
+                as_dict[name] = val
+        return as_dict
+
+    @classmethod
+    def _from_query(cls, query_dict):
+        initial_vals = {}
+        for key, val in query_dict.items():
+            option = cls.OPTIONS[key]
+            # devise alternative if if-branching gets unwieldy
+            if option.type is bool:
+                # all things we get from the parsed query are lists
+                assert len(val) == 1
+                val = bool(int(val[0]))
+            initial_vals[key] = val
+        return cls(initial_vals)
+
+    def __init__(self, initial_vals=None):
+        self._values = {name: opt.default for name, opt in self.OPTIONS.items()}
+        if initial_vals:
+            for key, val in initial_vals.items():
+                assert key in self.OPTIONS
+                self._values[key] = val
+
+    def __getitem__(self, key):
+        return self._values[key]
+
+    def __setitem__(self, key, value):
+        assert key in self.OPTIONS
+        self._values[key] = value
+
+
+class DisplayEntities(QuerySerializeable):
     def __init__(self, countries=(), states=(), counties=(), visible=None,
                  hidden=None):
         self._countries = set(countries)
@@ -713,7 +807,11 @@ class DisplayEntities(object):
                                      if x in self._visible]
         return self._visible_ordered
 
-    def serialize(self):
+    @classmethod
+    def valid_query_keys(cls):
+        return {'countries', 'states', 'counties', 'hidden'}
+
+    def _to_query_dict(self):
         # when serializing, we output invisible, instead of visible, since we
         # assume that will be smaller
         result = {}
@@ -732,11 +830,14 @@ class DisplayEntities(object):
         return result
 
     @classmethod
-    def deserialize(cls, raw):
+    def _from_query(cls, raw):
         countries = [Country.deserialize(x) for x in raw.get('countries', [])]
         states = [State.deserialize(x) for x in raw.get('states', [])]
         counties = [County.deserialize(x) for x in raw.get('counties', [])]
         hidden = raw.get('hidden')
+        if hidden:
+            # we need to convert hidden indices, from str to int
+            hidden = [int(x) for x in hidden]
         return cls(countries=countries, states=states, counties=counties,
                    hidden=hidden)
 
@@ -746,16 +847,12 @@ class Model(object):
     Can be queried or altered, but has no knowledge of any other entities, or
     logic for handling callbacks / notifications'''
 
-    DEFAULT_OPTIONS = {
-        'log': True,
-    }
-
     def __init__(self):
         self.counties_data = CountyDeathsData.get()
         self.states_data = StateDeathsData.get()
         self.countries_data = OWIDCountryDeathsData.get()
         self.entities = DisplayEntities()
-        self.options = dict(self.DEFAULT_OPTIONS)
+        self.options = Options()
 
     def last_update_time(self):
         return max(x.grabber.last_update_time for x in
@@ -823,27 +920,44 @@ class Model(object):
             to_graph_by_since.append((entity, since_data))
         return to_graph_by_since
 
-    def serialize(self):
-        return self.entities.serialize()
+    def serializeable_members(self):
+        def is_serializeable(x):
+            return isinstance(x, QuerySerializeable)
+        return dict(inspect.getmembers(self, is_serializeable))
 
-    def to_query(self):
-        as_dict = self.serialize()
+    def to_query_str(self):
+        as_dict = {}
+
+        all_possible_keys = set()
+        for serializeable in self.serializeable_members().values():
+            # ensure there's no key overlap between things we're serializing
+            new_keys = serializeable.valid_query_keys()
+            num_old_keys = len(all_possible_keys)
+            all_possible_keys.update(new_keys)
+            assert num_old_keys + len(new_keys) == len(all_possible_keys)
+
+            as_dict.update(serializeable.to_query_dict())
+
         return urllib.parse.urlencode(as_dict, doseq=True)
 
-    def set_from_query(self, parsed_query):
+    def set_from_query_dict(self, parsed_query):
         # unlike urllib.parse.urlencode, whatever bokeh uses to get
         # it's args back doesn't handle str (unicode), and leaves things as
         # bytes... so first, need to convert everything to str
         parsed_query = {key: [x.decode('utf-8') for x in val]
                         for key, val in parsed_query.items()}
 
-        # otherwise, only thing we need to convert is hidden indices, from
-        # str to int, since urllib.parse.urlencode doesn't preserve type
-        hidden = parsed_query.pop('hidden', None)
-        if hidden:
-            hidden = [int(x) for x in hidden]
-            parsed_query['hidden'] = hidden
-        self.entities = DisplayEntities.deserialize(parsed_query)
+        for name, serializeable in self.serializeable_members().items():
+            these_items = {}
+            for key in serializeable.valid_query_keys():
+                if key in parsed_query:
+                    these_items[key] = parsed_query.pop(key)
+            setattr(self, name, serializeable.from_query(these_items))
+
+        if parsed_query:
+            # make this more obvious to user?
+            bad_keys = ', '.join(sorted(parsed_query))
+            print("WARNING: unrecognized query keys: {}".format(bad_keys))
 
 
 class View(object):
@@ -927,7 +1041,7 @@ class View(object):
         save_button.js_on_change("tags", js_callback)
 
         def on_click():
-            querystr = self.model.to_query()
+            querystr = self.model.to_query_str()
             # TODO: don't hardcode directory portion
             host = self.doc.session_context.request.headers['Host']
             url = f'http://{host}/covid19?{querystr}'
@@ -1056,8 +1170,9 @@ class View(object):
         )
 
     def build_options_layout(self):
+        current = self.LOG_NAME if self.model.options['log'] else self.LIN_NAME
         self.log_select = mdl.Select(
-            title="Graph scaling:", value="log",
+            title="Graph scaling:", value=current,
             options=[self.LOG_NAME, self.LIN_NAME])
 
         def log_select_changed(attr, old_state, new_state):
@@ -1153,15 +1268,16 @@ class Controller(object):
         self.view.set_controller(self)
 
     def start(self, query=None):
-        self.view.build()
-
         # initial entities to graph
         if not query:
             initial_entities = DEFAULT_INITIAL_ENTITIES
             for entity in initial_entities:
                 self.model.entities.add(entity)
         else:
-            self.model.set_from_query(query)
+            self.model.set_from_query_dict(query)
+
+        # build view after getting the model, so initial settings are right
+        self.view.build()
 
         # update the visibility widget and the plot
         self.update_all_visible()
