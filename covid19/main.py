@@ -176,22 +176,22 @@ class DataGrabber(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def data_name(cls):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @classmethod
     @abc.abstractmethod
     def source_name(cls):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @classmethod
     @abc.abstractmethod
     def source_urls(cls):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @classmethod
     @abc.abstractmethod
     def _retrieve(cls):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @classmethod
     def max_date(cls):
@@ -485,7 +485,7 @@ class CountryDeathsData(DataGrabber):
     @classmethod
     @abc.abstractmethod
     def _retrieve_raw(cls):
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 # Currently not used - doesn't have data for US, or summed data for Australia,
@@ -596,7 +596,7 @@ class QuerySerializeable(abc.ABC):
     def valid_query_keys(cls):
         '''Return a set of all allowable keys that may be in to_query_dict
         '''
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def to_query_dict(self):
         '''Returns a dict that may be passed to urllib.parse.urlencode
@@ -610,7 +610,7 @@ class QuerySerializeable(abc.ABC):
     @abc.abstractmethod
     def _to_query_dict(self):
         '''Overriddeable implementation for to_query_dict'''
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @classmethod
     def from_query(cls, query_dict):
@@ -624,7 +624,7 @@ class QuerySerializeable(abc.ABC):
     @abc.abstractmethod
     def _from_query(cls, query_dict):
         '''Overriddeable implementation for from_query'''
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 Option = namedtuple('Option', ['name', 'default', 'type'])
