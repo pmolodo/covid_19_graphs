@@ -1,6 +1,6 @@
 name: covid19graphs
 dependencies:
+  - bokeh
+  - nodejs
   - numpy
   - pandas
-  - nodejs
-  - bokeh
