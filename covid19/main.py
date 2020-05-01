@@ -7,6 +7,7 @@
 from . import datamod
 
 import abc
+import enum
 import inspect
 import re
 import urllib
@@ -161,12 +162,16 @@ class QuerySerializeable(abc.ABC):
         '''Overriddeable implementation for from_query'''
         raise NotImplementedError()
 
+@enum.unique
+class YAxisScaling(enum.Enum):
+    log = 'logarithmic'
+    linear = 'linear'
 
 Option = namedtuple('Option', ['name', 'default', 'type'])
 
 class Options(QuerySerializeable):
     OPTIONS_LIST = [
-        Option('log', True, bool),
+        Option('yscale', YAxisScaling.log, YAxisScaling),
     ]
 
     OPTIONS = {x.name: x for x in OPTIONS_LIST}
@@ -184,9 +189,12 @@ class Options(QuerySerializeable):
             option = self.OPTIONS[name]
             if val != option.default:
                 # devise alternative if if-branching gets unwieldy
+
+                # because it's more compact, convert bools to 0/1
                 if option.type is bool:
-                    # because it's more compact, convert to 0/1
                     val = int(val)
+                elif issubclass(option.type, enum.Enum):
+                    val = val.name
                 as_dict[name] = val
         return as_dict
 
@@ -200,6 +208,9 @@ class Options(QuerySerializeable):
                 # all things we get from the parsed query are lists
                 assert len(val) == 1
                 val = bool(int(val[0]))
+            elif issubclass(option.type, enum.Enum):
+                assert len(val) == 1
+                val = getattr(option.type, val[0])
             initial_vals[key] = val
         return cls(initial_vals)
 
@@ -505,9 +516,6 @@ class View(object):
 
     May interact with model is a read-only manner'''
 
-    LOG_NAME = 'logarithmic'
-    LIN_NAME = 'linear'
-
     def __init__(self, doc, model):
         self.model = model
         self.doc = doc
@@ -710,19 +718,28 @@ class View(object):
         )
 
     def build_options_layout(self):
-        current = self.LOG_NAME if self.model.options['log'] else self.LIN_NAME
-        self.log_select = mdl.Select(
-            title="Graph scaling:", value=current,
-            options=[self.LOG_NAME, self.LIN_NAME])
+        self.log_select = self._build_enumerated_option('yscale',
+                                                        "Graph scaling:")
+        return lyt.row([self.log_select])
 
-        def log_select_changed(attr, old_state, new_state):
+    def _build_enumerated_option(self, option_name, title):
+        option_def = Options.OPTIONS[option_name]
+        enum_type = option_def.type
+        assert issubclass(enum_type, enum.Enum)
+        val_to_inst = {x.value: x for x in enum_type}
+
+        current = self.model.options[option_name].value
+        select_ui = mdl.Select(
+            title=title, value=current,
+            options=[x.value for x in enum_type])
+
+        def on_change(attr, old_state, new_state):
             assert attr == 'value'
             del old_state
-            self.controller.set_log(new_state == self.LOG_NAME)
+            self.controller.set_option(option_name, val_to_inst[new_state])
 
-        self.log_select.on_change('value', log_select_changed)
-
-        return lyt.row([self.log_select])
+        select_ui.on_change('value', on_change)
+        return select_ui
 
     def build_sources_layout(self):
         divs = []
@@ -750,13 +767,10 @@ class View(object):
             divs.append(mdl.Div(text='<br>'.join(lines)))
         return lyt.column(divs)
 
-    def get_y_axis_option(self):
-        return 'log' if self.model.options['log'] else 'linear'
-
     def make_plot(self, data):
         plot = bokeh.plotting.figure(title="Covid 19 - deaths since 1/million",
            x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
-           y_axis_type=self.get_y_axis_option())
+           y_axis_type=self.model.options['yscale'].name)
         user_agent = self.doc.session_context.request.headers.get('User-Agent')
         is_mobile = is_mobile_agent(user_agent)
         if is_mobile:
@@ -835,13 +849,8 @@ class Controller(object):
         self.view.update_visibility()
         self.update_plot()
 
-    def set_log(self, is_log):
-        self.model.options['log'] = is_log
-        # I wanted to make a more targeted "update_log" or similar, but it
-        # seems the bokeh.Figure has no easy way to change from log to linear
-        # after it's built - all the logic is in the __init__.  Technically,
-        # I could try to reproduce that logic, and set the lower level values
-        # myself... but safer to just recreate the entire plot
+    def set_option(self, option_name, value):
+        self.model.options[option_name] = value
         self.view.update_plot()
 
     def update_plot(self):
