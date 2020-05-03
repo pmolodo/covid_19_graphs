@@ -4,14 +4,11 @@
 # - https://towardsdatascience.com/data-visualization-with-bokeh-in-python-part-ii-interactions-a4cf994e2512
 # - https://realpython.com/lessons/using-groupfilter-and-cdsview/
 
-import pandas
+from . import datamod
 
 import abc
-import datetime
 import inspect
 import re
-import os
-import pathlib
 import urllib
 
 import bokeh.application.handlers
@@ -23,84 +20,6 @@ from collections import OrderedDict, namedtuple
 
 ################################################################################
 # Constants
-
-state_to_abbrev = {
-    'Alabama': 'AL',
-    'Alaska': 'AK',
-    'American Samoa': 'AS',
-    'Arizona': 'AZ',
-    'Arkansas': 'AR',
-    'California': 'CA',
-    'Colorado': 'CO',
-    'Connecticut': 'CT',
-    'Delaware': 'DE',
-    'District of Columbia': 'DC',
-    'Federated States of Micronesia': 'FM',
-    'Florida': 'FL',
-    'Georgia': 'GA',
-    'Guam': 'GU',
-    'Hawaii': 'HI',
-    'Idaho': 'ID',
-    'Illinois': 'IL',
-    'Indiana': 'IN',
-    'Iowa': 'IA',
-    'Kansas': 'KS',
-    'Kentucky': 'KY',
-    'Louisiana': 'LA',
-    'Maine': 'ME',
-    'Marshall Islands': 'MH',
-    'Maryland': 'MD',
-    'Massachusetts': 'MA',
-    'Michigan': 'MI',
-    'Minnesota': 'MN',
-    'Mississippi': 'MS',
-    'Missouri': 'MO',
-    'Montana': 'MT',
-    'Nebraska': 'NE',
-    'Nevada': 'NV',
-    'New Hampshire': 'NH',
-    'New Jersey': 'NJ',
-    'New Mexico': 'NM',
-    'New York': 'NY',
-    'North Carolina': 'NC',
-    'North Dakota': 'ND',
-    'Northern Mariana Islands': 'MP',
-    'Ohio': 'OH',
-    'Oklahoma': 'OK',
-    'Oregon': 'OR',
-    'Palau': 'PW',
-    'Pennsylvania': 'PA',
-    'Puerto Rico': 'PR',
-    'Rhode Island': 'RI',
-    'South Carolina': 'SC',
-    'South Dakota': 'SD',
-    'Tennessee': 'TN',
-    'Texas': 'TX',
-    'Utah': 'UT',
-    'Vermont': 'VT',
-    'Virgin Islands': 'VI',
-    'Virginia': 'VA',
-    'Washington': 'WA',
-    'West Virginia': 'WV',
-    'Wisconsin': 'WI',
-    'Wyoming': 'WY',
-}
-
-
-abbrev_to_state = dict((abbrev, state) for (state, abbrev) in state_to_abbrev.items())
-
-
-NYC_BURROUGHS = [
-    'New York County',
-    'Kings County',
-    'Bronx County',
-    'Richmond County',
-    'Queens County',
-]
-
-
-# make up nycity's fips as -1
-NYCITY_FIPS = -1
 
 SEP = ';'
 
@@ -151,395 +70,8 @@ def is_mobile_agent(user_agent):
     return bool(MOBILE_REG_V.search(user_agent[0:4]))
 
 ################################################################################
-# DataGrabbers
+# DataRetrievers
 
-class DataGrabber(abc.ABC):
-
-    _data = None
-    last_update_time = None
-
-    @classmethod
-    def get(cls):
-        # Want to make sure we this the _data on THIS class, not any parent
-        # classes...
-        if '_data' not in cls.__dict__:
-            cls._data = cls.retrieve()
-        return cls._data
-
-    @classmethod
-    def retrieve(cls):
-        result = cls._retrieve()
-        cls.last_update_time = datetime.datetime.now()
-        result.grabber = cls
-        return result
-
-    @classmethod
-    @abc.abstractmethod
-    def data_name(cls):
-        raise NotImplementedError()
-
-    @classmethod
-    @abc.abstractmethod
-    def source_name(cls):
-        raise NotImplementedError()
-
-    @classmethod
-    @abc.abstractmethod
-    def source_urls(cls):
-        raise NotImplementedError()
-
-    @classmethod
-    @abc.abstractmethod
-    def _retrieve(cls):
-        raise NotImplementedError()
-
-    @classmethod
-    def max_date(cls):
-        if 'date' in cls._data.columns:
-            return cls._data.date.max()
-        return None
-
-    # TODO: this should probably be moved into it's own subclass...?
-    @classmethod
-    def local_file(cls):
-        # if we've imported as a module, use the path of this module
-        this_file = pathlib.Path(inspect.getsourcefile(DataGrabber))
-        if this_file.is_file():
-            return str(this_file.parent.parent / cls.LOCAL_FILE)
-        # otherwise, assume that cwd is the repo root!
-        return os.path.join('.', cls.LOCAL_FILE)
-
-
-class USPopulationData(DataGrabber):
-    LOCAL_FILE = 'co-est2019-alldata.zip'
-
-    @classmethod
-    def data_name(cls):
-        return "US Population Data"
-
-    @classmethod
-    def source_name(cls):
-        return "United States Census Bureau"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902',
-            'data': 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv',
-        }
-
-    @classmethod
-    def _retrieve(cls):
-        # If we ever need to retrieve again, uncomment this:
-        # orig_url = 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv'
-        # orig_data = pandas.read_csv(orig_url, encoding='IBM850')
-        # trimmed_data = orig_data[(orig_data.SUMLEV == 40)
-        #                          | (orig_data.SUMLEV == 50)]
-        # trimmed_data = trimmed_data[[
-        #     'SUMLEV', 'STATE', 'COUNTY', 'STNAME', 'CTYNAME', 'POPESTIMATE2019']]
-        # compression_opts = {
-        #     'method': 'zip',
-        #     'archive_name': 'co-est2019-alldata.trimmed.csv',
-        # }
-        # trimmed_data.to_csv(cls.local_file(), index=False,
-        #                     compression=compression_opts)
-        # assert trimmed_data[trimmed_data.STNAME.str.contains(SEP)].empty
-        # assert trimmed_data[trimmed_data.CTYNAME.str.contains(SEP)].empty
-
-        return pandas.read_csv(cls.local_file())
-
-
-class CountyPopulationData(USPopulationData):
-    @classmethod
-    def data_name(cls):
-        return "US County Population Data"
-
-    @classmethod
-    def _retrieve(cls):
-        all_pop_data = USPopulationData.get()
-
-        county_pop_data = all_pop_data[all_pop_data.SUMLEV == 50][
-            ['STATE', 'COUNTY', 'STNAME', 'CTYNAME', 'POPESTIMATE2019']
-        ]
-        county_pop_data['fips'] = county_pop_data.STATE * 1000 + county_pop_data.COUNTY
-        county_pop_data = county_pop_data[['fips', 'POPESTIMATE2019']]
-        county_pop_data = county_pop_data.rename(columns={
-            'POPESTIMATE2019': 'population',
-        })
-        county_pop_data = county_pop_data.set_index('fips')
-        return cls.add_nyc(all_pop_data, county_pop_data)
-
-    @classmethod
-    def add_nyc(cls, all_pop_data, county_pop_data):
-        # Fixup New York City
-
-        # New York city is special - the city is divided into 5 counties (that's backward!)
-        # It's obviously so weird that even the New York Times doesn't abide by this, and just lists
-        # one entry for "New York City" - need to deal with this foolishness specially
-
-        nycity_pop = 0
-        for burrough in NYC_BURROUGHS:
-            burrough_data = all_pop_data[
-                (all_pop_data.STNAME == 'New York')
-                & (all_pop_data.CTYNAME == burrough)]
-            assert len(burrough_data) == 1
-            nycity_pop += burrough_data.POPESTIMATE2019.iat[0]
-
-        county_pop_data.loc[NYCITY_FIPS] = nycity_pop
-        return county_pop_data
-
-
-class StatePopulationData(USPopulationData):
-    @classmethod
-    def data_name(cls):
-        return "US State Population Data"
-
-    @classmethod
-    def _retrieve(cls):
-        all_pop_data = USPopulationData.get()
-
-        state_pop_data = all_pop_data[all_pop_data.SUMLEV == 40][
-            ['STATE', 'STNAME', 'POPESTIMATE2019']
-        ]
-        state_pop_data = state_pop_data.rename(columns={
-            'POPESTIMATE2019': 'population',
-            'STATE': 'fips',
-            'STNAME': 'state',
-        })
-        return state_pop_data.set_index('fips')
-
-# Country population estimates from the UN
-#   https://population.un.org/wpp/Download/Standard/CSV/
-
-class CountryPopulationData(DataGrabber):
-    LOCAL_FILE = 'WPP2019_TotalPopulationBySex.zip'
-
-    @classmethod
-    def data_name(cls):
-        return "Global Country Population Data"
-
-    @classmethod
-    def source_name(cls):
-        return "United Nations Department of Economic and Social Affairs"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://population.un.org/wpp/Download/Standard/CSV/',
-            'data': 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv',
-        }
-
-    @classmethod
-    def _retrieve(cls):
-        # If we ever need to retrieve again, uncomment this:
-        # orig_url = 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv'
-        # un_pop_raw_data = pandas.read_csv(orig_url)
-        # un_pop_data = un_pop_raw_data[un_pop_raw_data['Time'] == 2019]
-        # # all data <= 2019 is automatically in "medium" variant - VarID = 2
-        # drop_columns = ['Variant', 'VarID', 'Time', 'MidPeriod', 'PopMale', 'PopFemale', 'PopDensity']
-        # un_pop_data = un_pop_data.drop(drop_columns, axis='columns')
-        # un_pop_data = un_pop_data.reset_index(drop=True)
-        # un_pop_data = un_pop_data.rename(columns={'Location': 'country', 'PopTotal': 'population'})
-        # # un_pop_data is in thousands
-        # un_pop_data['population'] *= 1000
-        #
-        # # Use "United States" both because it's shorter, and it's what OWID uses
-        # un_pop_data = un_pop_data.replace(
-        #     {'United States of America': 'United States'})
-        # un_pop_data = un_pop_data.astype({'population': int})
-        # compression_opts = {
-        #     'method': 'zip',
-        #     'archive_name': 'WPP2019_TotalPopulationBySex.trimmed.csv',
-        # }
-        # assert un_pop_data[un_pop_data.country.str.contains(SEP)].empty
-        # un_pop_data.to_csv(cls.local_file(), index=False,
-        #                    compression=compression_opts)
-
-        return pandas.read_csv(cls.local_file())
-
-
-class CountyDeathsData(DataGrabber):
-    @classmethod
-    def data_name(cls):
-        return "US County Deaths Data"
-
-    @classmethod
-    def source_name(cls):
-        return "New York Times Covid-19 Data"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
-            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv',
-        }
-
-    @classmethod
-    def _retrieve(cls):
-        counties_raw_data = pandas.read_csv(cls.source_urls()['data'],
-                                            parse_dates=['date'])
-
-        #nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
-        #nycity_data.fips = NYCITY_FIPS
-
-        counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = NYCITY_FIPS
-
-        # Process county covid data
-
-        counties_data = counties_raw_data[counties_raw_data.fips.notna()]
-        counties_data = counties_data.astype({'fips': int})
-        #counties_data['state_fips'] = counties_data.fips // 1000
-        #counties_data['county_fips'] = counties_data.fips % 1000
-        #counties_data['county_state'] = counties_data['county'].str.cat(counties_data['state'], sep =", ")
-        #all_counties = (counties_data['county_state'].unique())
-
-        # Confirm all counties in nytimes data have population data
-        county_pop_data = CountyPopulationData.get()
-        counties_fips = set(counties_data.fips.unique())
-        county_pop_fips = set(county_pop_data.index.unique())
-        assert len(counties_fips - county_pop_fips) == 0
-
-        counties_states = set(counties_data.state.unique())
-        abbrev_states = set(state_to_abbrev)
-        assert len(counties_states - abbrev_states) == 0
-
-        counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
-        counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
-        counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
-
-        assert counties_data[counties_data.county.str.contains(SEP)].empty
-        assert counties_data[counties_data.state.str.contains(SEP)].empty
-
-        return counties_data
-
-
-class StateDeathsData(DataGrabber):
-    @classmethod
-    def data_name(cls):
-        return "US State Deaths Data"
-
-    @classmethod
-    def source_name(cls):
-        return "New York Times Covid-19 Data"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
-            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv',
-        }
-
-    @classmethod
-    def _retrieve(cls):
-        states_raw_data = pandas.read_csv(cls.source_urls()['data'],
-                                          parse_dates=['date'])
-        states_data = states_raw_data.astype({'fips': int})
-
-        state_pop_data = StatePopulationData.get()
-
-        # the nytimes data has some territories, for which we don't yet have pop data...
-        state_pop_fips = set(state_pop_data.index.unique())
-        # state_pop_data has 50 states + DC
-        assert len(state_pop_fips) == 51
-        states_fips = set(states_data.fips.unique())
-        assert state_pop_fips.issubset(states_fips)
-
-        states_data = pandas.merge(states_data, state_pop_data['population'], how='inner',
-                                   left_on='fips', right_on=state_pop_data.index)
-        states_data['cases_per_million'] = states_data.cases / (states_data.population / 1e6)
-        states_data['deaths_per_million'] = states_data.deaths / (states_data.population / 1e6)
-
-        # Confirm all states in nytimes data have abbreviations
-        states_states = set(states_data.state.unique())
-        abbrev_states = set(state_to_abbrev)
-        assert len(states_states - abbrev_states) == 0
-
-        assert states_data[states_data.state.str.contains(SEP)].empty
-
-        return states_data
-
-
-class CountryDeathsData(DataGrabber):
-    @classmethod
-    def data_name(cls):
-        return "Country Deaths Data"
-
-    @classmethod
-    def _retrieve(cls):
-        country_deaths_data = cls._retrieve_raw()
-
-        un_pop_data = CountryPopulationData.get()
-
-        country_deaths_data = pandas.merge(country_deaths_data, un_pop_data[
-            ['country', 'population']], how='inner',
-                                           left_on='country',
-                                           right_on='country')
-        country_deaths_data[
-            'deaths_per_million'] = country_deaths_data.deaths / (
-                    country_deaths_data.population / 1e6)
-
-        assert country_deaths_data[country_deaths_data.country.str.contains(SEP)].empty
-
-        return country_deaths_data
-
-    @classmethod
-    @abc.abstractmethod
-    def _retrieve_raw(cls):
-        raise NotImplementedError()
-
-
-# Currently not used - doesn't have data for US, or summed data for Australia,
-# and a few other countries
-class JHUCountryDeathsData(CountryDeathsData):
-    @classmethod
-    def source_name(cls):
-        return "Johns Hopkins University Center for Systems Science and Engineering"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://github.com/CSSEGISandData/COVID-19',
-            'data': 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv',
-        }
-
-    @classmethod
-    def _retrieve_raw(cls):
-        country_deaths_raw_data = pandas.read_csv(cls.source_urls()['data'])
-        country_deaths_data = country_deaths_raw_data.rename(columns={
-            'Country/Region': 'country',
-            'Province/State': 'province',
-        })
-        # filter out province / state data for now (might want to eventually support this)
-        country_deaths_data = country_deaths_data[country_deaths_data.province.isna()]
-        country_deaths_data = country_deaths_data.drop(['province', 'Lat', 'Long'], axis='columns')
-        country_deaths_data = country_deaths_data.melt(id_vars=['country'], var_name='date', value_name='deaths')
-        country_deaths_data['date'] = pandas.to_datetime(country_deaths_data.date)
-        return country_deaths_data
-
-
-class OWIDCountryDeathsData(CountryDeathsData):
-    @classmethod
-    def source_name(cls):
-        return "Our World In Data"
-
-    @classmethod
-    def source_urls(cls):
-        return {
-            'site': 'https://github.com/owid/covid-19-data/tree/master/public/data',
-            'data': 'https://covid.ourworldindata.org/data/ecdc/full_data.csv',
-        }
-
-    @classmethod
-    def _retrieve_raw(cls):
-        country_deaths_raw_data = pandas.read_csv(cls.source_urls()['data'],
-                                                  parse_dates=['date'])
-        country_deaths_data = country_deaths_raw_data.rename(columns={
-            'location': 'country',
-            'total_deaths': 'deaths',
-        })
-        country_deaths_data = country_deaths_data.drop(
-            ['new_cases', 'new_deaths', 'total_cases'], axis='columns')
-        return country_deaths_data
 
 
 ################################################################################
@@ -550,6 +82,9 @@ class Entity(object):
         return ', '.join(str(x) for x in self)
 
     def serialize(self):
+        for piece in self:
+            assert SEP not in piece, \
+                "Name {!r} contained invalid character {}".format(piece, SEP)
         return SEP.join(str(x) for x in self)
 
     @classmethod
@@ -563,16 +98,16 @@ class State(Entity, namedtuple('State', ['name'])):
     def __new__(cls, *args, **kwargs):
         # force non-abbreviated name
         self = super().__new__(cls, *args, **kwargs)
-        if self.name in abbrev_to_state:
-            self = State(abbrev_to_state[self.name])
+        if self.name in datamod.abbrev_to_state:
+            self = State(datamod.abbrev_to_state[self.name])
         return self
 
 class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
     def __new__(cls, *args, **kwargs):
         # force abbreviated state name
         self = super().__new__(cls, *args, **kwargs)
-        if self.state in state_to_abbrev:
-            self = County(self.name, state_to_abbrev[self.state])
+        if self.state in datamod.state_to_abbrev:
+            self = County(self.name, datamod.state_to_abbrev[self.state])
         return self
 
 
@@ -848,15 +383,20 @@ class Model(object):
     logic for handling callbacks / notifications'''
 
     def __init__(self):
-        self.counties_data = CountyDeathsData.get()
-        self.states_data = StateDeathsData.get()
-        self.countries_data = OWIDCountryDeathsData.get()
+        # TODO: genericize this a bit, instead of storing a bunch of X_data
+        #       members...
+        self.counties_data = datamod.data_cache.get('county_deaths')
+        self.states_data = datamod.data_cache.get('state_deaths')
+        self.countries_data = datamod.data_cache.get('country_deaths')
+
+        # assert names don't have SEP in them, so we can serialize for queries
+
         self.entities = DisplayEntities()
         self.options = Options()
 
     def last_update_time(self):
-        return max(x.grabber.last_update_time for x in
-                   [self.counties_data, self.states_data, self.countries_data])
+        return max(datamod.data_cache[x].update_time for x in
+                   ['county_deaths', 'state_deaths', 'country_deaths'])
 
     def graphable_countries(self):
         return sorted(
@@ -887,7 +427,7 @@ class Model(object):
         for entity in self.entities.visible_ordered():
             if isinstance(entity, County):
                 county, state_abbrev = entity
-                state = abbrev_to_state[state_abbrev]
+                state = datamod.abbrev_to_state[state_abbrev]
                 data = counties[(counties.state == state)
                                 & (counties.county == county)]
                 assert len(data) > 0, f"no county data for {county}, {state}"
@@ -1185,24 +725,24 @@ class View(object):
         return lyt.row([self.log_select])
 
     def build_sources_layout(self):
-        grabbers = [
-            USPopulationData,
-            CountryPopulationData,
-            CountyDeathsData,
-            StateDeathsData,
-            # Currently not used
-            # JHUCountryDeathsData,
-            OWIDCountryDeathsData,
-        ]
         divs = []
-        for grabber in grabbers:
+        # was initially going to make this a set, but Source objects have a
+        # dict, and aren't immutable... also, number of sources is small enough
+        # that iterating over list should be fine
+        seen = []
+        for cache_item in datamod.data_cache.values():
+            retriever = cache_item.retriever
+            source = retriever.source()
+            if source in seen:
+                continue
+            seen.append(source)
             lines = []
-            lines.append('{} from:'.format(grabber.data_name()))
-            lines.append('{}'.format(grabber.source_name()))
+            lines.append('{} from:'.format(retriever.data_name()))
+            lines.append('{}'.format(source.name))
             links = ['<a href="{}">{}</a>'.format(url, name)
-                     for name, url in grabber.source_urls().items()]
+                     for name, url in source.urls.items()]
             links = ', '.join(links)
-            date = grabber.max_date()
+            date = cache_item.max_date()
             if date is not None:
                 date = date.strftime('%a, %x')
                 lines.append('Most recent data: {}'.format(date))

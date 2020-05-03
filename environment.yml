@@ -1,5 +1,6 @@
 name: covid19graphs
 dependencies:
+  - attrs
   - bokeh
   - nodejs
   - numpy
