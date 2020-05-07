@@ -1,4 +1,4 @@
-'''Concrete Implementations of DataRetrieves and DataCache'''
+'''Concrete Implementations of DataRetrievers and DataCache'''
 
 import attr
 import pandas
@@ -249,7 +249,7 @@ class CountyDeathsRetriever(DataRetriever):
         counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
         counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
 
-        return counties_data
+        return counties_data.rename(columns={'county': 'name'})
 
 
 @attr.s(auto_attribs=True)
@@ -288,7 +288,7 @@ class StateDeathsRetriever(DataRetriever):
         abbrev_states = set(state_to_abbrev)
         assert len(states_states - abbrev_states) == 0
 
-        return states_data
+        return states_data.rename(columns={'state': 'name'})
 
 
 # Note: I think this could be genericized to also handle CountyDeathsRetriever /
@@ -316,12 +316,11 @@ class PopModifiedDeathsRetriever(DataRetriever):
 
         country_deaths_data = pandas.merge(country_deaths_data, pop_data[
             ['country', 'population']], how='inner',
-                                           left_on='country',
+                                           left_on='name',
                                            right_on='country')
         country_deaths_data[
             'deaths_per_million'] = country_deaths_data.deaths / (
                     country_deaths_data.population / 1e6)
-
         return country_deaths_data
 
 
@@ -339,7 +338,7 @@ class JHUCountryDeathsData(DataRetriever):
     def retrieve(self) -> pandas.DataFrame:
         country_deaths_raw_data = pandas.read_csv(self.source().urls['data'])
         country_deaths_data = country_deaths_raw_data.rename(columns={
-            'Country/Region': 'country',
+            'Country/Region': 'name',
             'Province/State': 'province',
         })
         # filter out province / state data for now (might want to eventually support this)
@@ -365,7 +364,7 @@ class OWIDCountryDeathsRetriever(DataRetriever):
         country_deaths_raw_data = pandas.read_csv(self.source().urls['data'],
                                                   parse_dates=['date'])
         country_deaths_data = country_deaths_raw_data.rename(columns={
-            'location': 'country',
+            'location': 'name',
             'total_deaths': 'deaths',
         })
         country_deaths_data = country_deaths_data.drop(

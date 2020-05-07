@@ -78,6 +78,20 @@ def is_mobile_agent(user_agent):
 ################################################################################
 # Entities - Country / State / County data types
 
+
+def filter_dataframe(dataframe, **conditions):
+    if not conditions:
+        return dataframe
+    joint_condition = None
+    for key, value in conditions.items():
+        this_condition = getattr(dataframe, key) == value
+        if joint_condition is None:
+            joint_condition = this_condition
+        else:
+            joint_condition &= this_condition
+    return dataframe[joint_condition]
+
+
 class Entity(object):
     def __str__(self):
         return ', '.join(str(x) for x in self)
@@ -91,6 +105,13 @@ class Entity(object):
     @classmethod
     def deserialize(cls, raw):
         return cls(*raw.split(SEP))
+
+    def dataframe_conditions(self):
+        return {field: value for field, value in zip(self._fields, self)}
+
+    def filter_dataframe(self, dataframe):
+        return filter_dataframe(dataframe, **self.dataframe_conditions())
+
 
 class Country(Entity, namedtuple('CountryBase', ['name'])):
     pass
@@ -110,6 +131,11 @@ class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
         if self.state in datamod.state_to_abbrev:
             self = County(self.name, datamod.state_to_abbrev[self.state])
         return self
+
+    def dataframe_conditions(self):
+        conditions = super().dataframe_conditions()
+        conditions['state'] = datamod.abbrev_to_state[conditions['state']]
+        return conditions
 
 
 DEFAULT_INITIAL_ENTITIES = [
@@ -394,64 +420,34 @@ class Model(object):
     logic for handling callbacks / notifications'''
 
     def __init__(self):
-        # TODO: genericize this a bit, instead of storing a bunch of X_data
-        #       members...
-        self.counties_data = datamod.data_cache.get('county_deaths')
-        self.states_data = datamod.data_cache.get('state_deaths')
-        self.countries_data = datamod.data_cache.get('country_deaths')
-
-        # assert names don't have SEP in them, so we can serialize for queries
+        self.cache_names_by_entity = {
+            County: 'county_deaths',
+            State: 'state_deaths',
+            Country: 'country_deaths',
+        }
+        self.data = {key: datamod.data_cache.get(val)
+                     for key, val in self.cache_names_by_entity.items()}
 
         self.entities = DisplayEntities()
         self.options = Options()
 
     def last_update_time(self):
-        return max(datamod.data_cache[x].update_time for x in
-                   ['county_deaths', 'state_deaths', 'country_deaths'])
+        return max(datamod.data_cache[name].update_time
+                   for name in self.cache_names_by_entity.values())
 
-    def graphable_countries(self):
+    def graphable_entities(self, entity_type, **conditions):
+        dataframe = self.data[entity_type]
+        dataframe = filter_dataframe(dataframe, **conditions)
         return sorted(
-            self.countries_data[self.countries_data.deaths_per_million >= 1.0]
-                .country.unique()
-        )
-
-    def graphable_states(self):
-        return sorted(
-            self.states_data[self.states_data.deaths_per_million >= 1.0]
-                .state.unique()
-        )
-
-    def graphable_counties(self, state_name):
-        return sorted(
-            self.counties_data[
-                (self.counties_data.state == state_name)
-                & (self.counties_data.deaths_per_million >= 1.0)
-            ].county.unique()
+            dataframe[dataframe.deaths_per_million >= 1.0].name.unique()
         )
 
     def make_dataset(self):
-        counties = self.counties_data
-        states = self.states_data
-        countries = self.countries_data
-
         to_graph_by_date = []
         for entity in self.entities.visible_ordered():
-            if isinstance(entity, County):
-                county, state_abbrev = entity
-                state = datamod.abbrev_to_state[state_abbrev]
-                data = counties[(counties.state == state)
-                                & (counties.county == county)]
-                assert len(data) > 0, f"no county data for {county}, {state}"
-            elif isinstance(entity, State):
-                state = entity.name
-                data = states[states.state == state]
-                assert len(data) > 0, f"no state data for {state}"
-            elif isinstance(entity, Country):
-                country = entity.name
-                data = countries[countries.country == country]
-                assert len(data) > 0, f"no country data for {country}"
-            else:
-                raise TypeError(entity)
+            data = self.data[type(entity)]
+            data = entity.filter_dataframe(data)
+            assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             to_graph_by_date.append((entity, data))
 
         def get_data_since(data, condition_func):
@@ -646,7 +642,7 @@ class View(object):
 
     def build_add_entity_layout(self):
         # Country
-        all_countries = self.model.graphable_countries()
+        all_countries = self.model.graphable_entities(Country)
         self.pick_country_dropdown = mdl.Select(
             title="Country:", value="Spain", options=all_countries)
         self.add_country_button = mdl.Button(label="Add Country")
@@ -658,7 +654,7 @@ class View(object):
         self.add_country_button.on_click(click_add_country)
 
         # State
-        all_states = self.model.graphable_states()
+        all_states = self.model.graphable_entities(State)
         self.pick_state_dropdown = mdl.Select(
             title="US State:", value="California", options=all_states)
         self.add_state_button = mdl.Button(label="Add State")
@@ -688,8 +684,8 @@ class View(object):
         def pick_state_changed(attr, old_state, new_state):
             assert attr == 'value'
             del old_state
-            all_counties = self.model.graphable_counties(
-                self.pick_state_dropdown.value)
+            all_counties = self.model.graphable_entities(
+                County, state=self.pick_state_dropdown.value)
             self.pick_county_dropdown.options = all_counties
             self.pick_county_dropdown.value = all_counties[0]
 
