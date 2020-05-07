@@ -188,16 +188,25 @@ class QuerySerializeable(abc.ABC):
         '''Overriddeable implementation for from_query'''
         raise NotImplementedError()
 
+# For option enums, the name will be what is saved in queries, the value is
+# what will be displayed in UIs
+
 @enum.unique
 class YAxisScaling(enum.Enum):
     log = 'logarithmic'
     linear = 'linear'
+
+@enum.unique
+class DailyCumulative(enum.Enum):
+    daily = 'daily'
+    cumulative = 'cumulative'
 
 Option = namedtuple('Option', ['name', 'default', 'type'])
 
 class Options(QuerySerializeable):
     OPTIONS_LIST = [
         Option('yscale', YAxisScaling.log, YAxisScaling),
+        Option('daily', DailyCumulative.cumulative, DailyCumulative),
     ]
 
     OPTIONS = {x.name: x for x in OPTIONS_LIST}
@@ -448,6 +457,15 @@ class Model(object):
             data = self.data[type(entity)]
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
+
+            if self.options['daily'] == DailyCumulative.daily:
+                data = data.copy()
+                data['deaths'] = data.deaths.diff()
+                # The very first entry will be NaN, set to 0 instead
+                data.iloc[0, data.columns.get_loc('deaths')] = 0
+                data['deaths_per_million'] = data.deaths / (
+                            data.population / 1e6)
+
             to_graph_by_date.append((entity, data))
 
         def get_data_since(data, condition_func):
@@ -714,9 +732,10 @@ class View(object):
         )
 
     def build_options_layout(self):
-        self.log_select = self._build_enumerated_option('yscale',
-                                                        "Graph scaling:")
-        return lyt.row([self.log_select])
+        self.option_uis = {}
+        self._build_enumerated_option('yscale', "Graph scaling:")
+        self._build_enumerated_option('daily', "Daily/Cumulative:")
+        return lyt.column(list(self.option_uis.values()))
 
     def _build_enumerated_option(self, option_name, title):
         option_def = Options.OPTIONS[option_name]
@@ -735,7 +754,7 @@ class View(object):
             self.controller.set_option(option_name, val_to_inst[new_state])
 
         select_ui.on_change('value', on_change)
-        return select_ui
+        self.option_uis[option_name] = select_ui
 
     def build_sources_layout(self):
         divs = []
@@ -847,7 +866,7 @@ class Controller(object):
 
     def set_option(self, option_name, value):
         self.model.options[option_name] = value
-        self.view.update_plot()
+        self.update_plot()
 
     def update_plot(self):
         self.view.update_plot(self.model.make_dataset())
