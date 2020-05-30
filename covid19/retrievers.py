@@ -37,7 +37,7 @@ class DataRetriever(abc.ABC):
         raise NotImplementedError()
 
 
-UPDATE_INTERVAL = datetime.timedelta(minutes=1)
+UPDATE_INTERVAL = datetime.timedelta(hours=1)
 
 
 @attr.s(auto_attribs=True)
