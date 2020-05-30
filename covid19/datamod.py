@@ -409,7 +409,7 @@ data_cache.add('county_deaths', CountyDeathsRetriever(
     DataSource(
         name="New York Times Covid-19 Data",
         urls={
-            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
+            'site': 'https://github.com/nytimes/covid-19-data',
             'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv',
         },
     ),
@@ -420,7 +420,7 @@ data_cache.add('state_deaths', StateDeathsRetriever(
     DataSource(
         name="New York Times Covid-19 Data",
         urls={
-            'site': 'https://raw.githubusercontent.com/nytimes/covid-19-data',
+            'site': 'https://github.com/nytimes/covid-19-data',
             'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv',
         },
     ),
