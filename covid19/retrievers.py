@@ -37,6 +37,9 @@ class DataRetriever(abc.ABC):
         raise NotImplementedError()
 
 
+UPDATE_INTERVAL = datetime.timedelta(minutes=1)
+
+
 @attr.s(auto_attribs=True)
 class DataCacheItem(object):
     retriever: DataRetriever
@@ -44,9 +47,10 @@ class DataCacheItem(object):
     _data: Optional[pandas.DataFrame] = attr.ib(default=None, init=False)
 
     def get(self) -> pandas.DataFrame:
-        if self._data is None:
+        now = datetime.datetime.now()
+        if self._data is None or (now - self.update_time) > UPDATE_INTERVAL:
             self._data = self.retriever.retrieve()
-            self.update_time = datetime.datetime.now()
+            self.update_time = now
         return self._data
 
     def max_date(self) -> Optional[pandas._libs.tslibs.timestamps.Timestamp]:
