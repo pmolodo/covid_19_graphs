@@ -795,7 +795,7 @@ class View(object):
             plot.toolbar.active_scroll = None
 
         last_update_time = self.model.last_update_time()
-        updated_str = last_update_time.strftime('Updated: %a, %x %X')
+        updated_str = last_update_time.strftime('Updated: %a, %x %X (%Z)')
         updated = mdl.Title(text=updated_str, align="right",
                             text_font_size="8pt", text_font_style="normal")
         plot.add_layout(updated, "below")
