@@ -530,6 +530,8 @@ class View(object):
 
     May interact with model is a read-only manner'''
 
+    UPDATE_FETCHING = 'Updated: Fetching'
+
     def __init__(self, doc, model):
         self.model = model
         self.doc = doc
@@ -576,6 +578,9 @@ class View(object):
         # actual plot will be replace by make_plot when we have data, and
         # are ready to draw
         self.plot = bokeh.plotting.figure(title="Dummy placeholder plot")
+        self.updated = mdl.Title(text=self.UPDATE_FETCHING, align="right",
+                                 text_font_size="8pt", text_font_style="normal")
+        self.plot.add_layout(self.updated, "below")
 
         self.controls_plot = mdl.Row(self.tabs, self.plot)
         self.controls_plot.sizing_mode = "stretch_both"
@@ -584,6 +589,56 @@ class View(object):
         self.main_layout = mdl.Column(self.controls_plot, self.save_button,
                                       sizing_mode='stretch_both')
         self.doc.add_root(self.main_layout)
+
+        self.add_updated_local_time_callback()
+
+    def add_updated_local_time_callback(self):
+        """Add callbacks to display the last-updated time in the browser-local
+        timezone.
+        """
+        # Unfortunately, getting the timezone to show in the users's local time
+        # (instead of the server timezone) was tricky - the only thing that
+        # "knows" the local time is the browser, which means the updated time
+        # display string has to be updated via a javascript-callback;
+        # unfortunately, getting a javascript callback to fire just once, when
+        # the whole graph is first built (and not when, say, the user clicks a
+        # button) proved problematic - the only way I found was to make use
+        # of a periodic_callback, which modified a value that a javascript
+        # on change callback was watching.
+
+        # Thanks to _jm and Bryan for their responses on this thread:
+        #    https://discourse.bokeh.org/t/how-to-display-last-updated-information-in-local-time/5870
+
+        update_time_cds = mdl.ColumnDataSource(
+            data={'t': [self.model.last_update_time()]})
+
+        update_text_cb = mdl.CustomJS(args=dict(source=update_time_cds),
+                                      code="""
+            var localUpdateTime = new Date(source.data['t'][0])
+            cb_obj.text = "Updated: " + localUpdateTime.toString();
+        """)
+        self.updated.js_on_change('text', update_text_cb)
+
+        periods_holder = [0]
+        def modify_updated_time_placeholder(*args, **kwargs):
+            if not self.updated.text.startswith(self.UPDATE_FETCHING):
+                # print("periodic_callback removed...")
+                self.doc.remove_periodic_callback(periodic_callback)
+                return
+
+            # Just cycle between values with 1 to 3 trailing "." - this just
+            # makes sure that the value is always changed, so that as soon
+            # as javascript is "available", the javascript "on change" callback
+            # will fire.
+            num_periods = periods_holder[0]
+            # print("periodic_callback fired! {} - {} - {}"
+            #       .format(num_periods, args, kwargs))
+            periods_holder[0] = num_periods + 1
+            ellipsis = '.' * (num_periods % 3 + 1)
+            self.updated.text = self.UPDATE_FETCHING + ellipsis
+
+        periodic_callback = self.doc.add_periodic_callback(
+            modify_updated_time_placeholder, 1000)
 
     def build_save_button(self):
         save_button = mdl.Button(label='Save/Share', button_type="success")
@@ -794,11 +849,7 @@ class View(object):
             plot.toolbar.active_drag = None
             plot.toolbar.active_scroll = None
 
-        last_update_time = self.model.last_update_time()
-        updated_str = last_update_time.strftime('Updated: %a, %x %X (%Z)')
-        updated = mdl.Title(text=updated_str, align="right",
-                            text_font_size="8pt", text_font_style="normal")
-        plot.add_layout(updated, "below")
+        plot.add_layout(self.updated, "below")
 
         for entity, line_data in data:
             plot.line(x='days', y='deaths_per_million', source=line_data,

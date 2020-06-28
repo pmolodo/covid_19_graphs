@@ -9,12 +9,9 @@ import pandas
 import pathlib
 import os
 import typing
-import tzlocal
 
 from typing import Optional
 
-
-LOCAL_TIMEZONE = tzlocal.get_localzone()
 
 THIS_FILE = inspect.getsourcefile(lambda: None)
 
@@ -50,7 +47,7 @@ class DataCacheItem(object):
     _data: Optional[pandas.DataFrame] = attr.ib(default=None, init=False)
 
     def get(self) -> pandas.DataFrame:
-        now = datetime.datetime.now().astimezone(LOCAL_TIMEZONE)
+        now = datetime.datetime.utcnow()
         if self._data is None or (now - self.update_time) > UPDATE_INTERVAL:
             self._data = self.retriever.retrieve()
             self.update_time = now
