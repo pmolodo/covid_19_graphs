@@ -207,6 +207,7 @@ class Options(QuerySerializeable):
     OPTIONS_LIST = [
         Option('yscale', YAxisScaling.log, YAxisScaling),
         Option('daily', DailyCumulative.cumulative, DailyCumulative),
+        Option('daily_average_size', 7, int)
     ]
 
     OPTIONS = {x.name: x for x in OPTIONS_LIST}
@@ -235,6 +236,8 @@ class Options(QuerySerializeable):
 
     @classmethod
     def _from_query(cls, query_dict):
+        import numbers
+
         initial_vals = {}
         for key, val in query_dict.items():
             option = cls.OPTIONS[key]
@@ -246,6 +249,9 @@ class Options(QuerySerializeable):
             elif issubclass(option.type, enum.Enum):
                 assert len(val) == 1
                 val = getattr(option.type, val[0])
+            elif issubclass(option.type, numbers.Real):
+                assert len(val) == 1
+                val = option.type(val[0])
             initial_vals[key] = val
         return cls(initial_vals)
 
@@ -463,8 +469,13 @@ class Model(object):
                 data['deaths'] = data.deaths.diff()
                 # The very first entry will be NaN, set to 0 instead
                 data.iloc[0, data.columns.get_loc('deaths')] = 0
+                average_size = self.options['daily_average_size']
+                if average_size > 1:
+                    data['deaths'] = data.deaths.rolling(
+                        window=average_size, min_periods=1).mean()
                 data['deaths_per_million'] = data.deaths / (
                             data.population / 1e6)
+
 
             to_graph_by_date.append((entity, data))
 
@@ -517,6 +528,8 @@ class Model(object):
             for key in serializeable.valid_query_keys():
                 if key in parsed_query:
                     these_items[key] = parsed_query.pop(key)
+                    print(these_items[key])
+            print(name, these_items)
             setattr(self, name, serializeable.from_query(these_items))
 
         if parsed_query:
@@ -790,6 +803,8 @@ class View(object):
         self.option_uis = {}
         self._build_enumerated_option('yscale', "Graph scaling:")
         self._build_enumerated_option('daily', "Daily/Cumulative:")
+        self._build_int_option('daily_average_size',
+                               "Averge daily value over past X days:")
         return lyt.column(list(self.option_uis.values()))
 
     def _build_enumerated_option(self, option_name, title):
@@ -807,6 +822,19 @@ class View(object):
             assert attr == 'value'
             del old_state
             self.controller.set_option(option_name, val_to_inst[new_state])
+
+        select_ui.on_change('value', on_change)
+        self.option_uis[option_name] = select_ui
+
+    def _build_int_option(self, option_name, title):
+        current = self.model.options[option_name]
+        select_ui = mdl.Slider(
+            title=title, value=current, start=1, end=30)
+
+        def on_change(attr, old_state, new_state):
+            assert attr == 'value'
+            del old_state
+            self.controller.set_option(option_name, new_state)
 
         select_ui.on_change('value', on_change)
         self.option_uis[option_name] = select_ui
