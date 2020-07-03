@@ -246,8 +246,6 @@ class CountyDeathsRetriever(DataRetriever):
         assert len(counties_states - abbrev_states) == 0
 
         counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
-        counties_data['cases_per_million'] = counties_data.cases / (counties_data.population / 1e6)
-        counties_data['deaths_per_million'] = counties_data.deaths / (counties_data.population / 1e6)
 
         return counties_data.rename(columns={'county': 'name'})
 
@@ -280,8 +278,6 @@ class StateDeathsRetriever(DataRetriever):
 
         states_data = pandas.merge(states_data, state_pop_data['population'], how='inner',
                                    left_on='fips', right_on=state_pop_data.index)
-        states_data['cases_per_million'] = states_data.cases / (states_data.population / 1e6)
-        states_data['deaths_per_million'] = states_data.deaths / (states_data.population / 1e6)
 
         # Confirm all states in nytimes data have abbreviations
         states_states = set(states_data.state.unique())
@@ -318,9 +314,6 @@ class PopModifiedDeathsRetriever(DataRetriever):
             ['country', 'population']], how='inner',
                                            left_on='name',
                                            right_on='country')
-        country_deaths_data[
-            'deaths_per_million'] = country_deaths_data.deaths / (
-                    country_deaths_data.population / 1e6)
         return country_deaths_data
 
 

@@ -79,16 +79,19 @@ def is_mobile_agent(user_agent):
 # Entities - Country / State / County data types
 
 
-def filter_dataframe(dataframe, **conditions):
-    if not conditions:
+def filter_dataframe(dataframe, *misc_conditions, **equality_conditions):
+    if not misc_conditions and not equality_conditions:
         return dataframe
+    conditions = list(misc_conditions)
+    for key, value in equality_conditions.items():
+        conditions.append(getattr(dataframe, key) == value)
+
     joint_condition = None
-    for key, value in conditions.items():
-        this_condition = getattr(dataframe, key) == value
+    for condition in conditions:
         if joint_condition is None:
-            joint_condition = this_condition
+            joint_condition = condition
         else:
-            joint_condition &= this_condition
+            joint_condition &= condition
     return dataframe[joint_condition]
 
 
@@ -450,12 +453,16 @@ class Model(object):
         return max(datamod.data_cache[name].update_time
                    for name in self.cache_names_by_entity.values())
 
+    @staticmethod
+    def deaths_per_mill_greater_1(data):
+        return data.deaths / (data.population / 1e6) >= 1.0
+
     def graphable_entities(self, entity_type, **conditions):
         dataframe = self.data[entity_type]
-        dataframe = filter_dataframe(dataframe, **conditions)
-        return sorted(
-            dataframe[dataframe.deaths_per_million >= 1.0].name.unique()
-        )
+        dataframe = filter_dataframe(dataframe,
+                                     self.deaths_per_mill_greater_1(dataframe),
+                                     **conditions)
+        return sorted(dataframe.name.unique())
 
     def make_dataset(self):
         to_graph_by_date = []
@@ -473,10 +480,7 @@ class Model(object):
                 if average_size > 1:
                     data['deaths'] = data.deaths.rolling(
                         window=average_size, min_periods=1).mean()
-                data['deaths_per_million'] = data.deaths / (
-                            data.population / 1e6)
-
-
+            data['y'] = data.deaths / (data.population / 1e6)
             to_graph_by_date.append((entity, data))
 
         def get_data_since(data, condition_func):
@@ -486,13 +490,10 @@ class Model(object):
             since_data['days'] = (since_data.date - day0).apply(lambda x: x.days)
             return since_data
 
-        def deaths_per_mill_greater_1(data):
-            return data.deaths_per_million >= 1.0
-
         to_graph_by_since = []
 
         for entity, data in to_graph_by_date:
-            since_data = get_data_since(data, deaths_per_mill_greater_1)
+            since_data = get_data_since(data, self.deaths_per_mill_greater_1)
             to_graph_by_since.append((entity, since_data))
         return to_graph_by_since
 
@@ -880,7 +881,7 @@ class View(object):
         plot.add_layout(self.updated, "below")
 
         for entity, line_data in data:
-            plot.line(x='days', y='deaths_per_million', source=line_data,
+            plot.line(x='days', y='y', source=line_data,
                       line_width=3, color=self.color(entity),
                       legend_label=str(entity))
 
