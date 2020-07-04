@@ -204,11 +204,18 @@ class DailyCumulative(enum.Enum):
     daily = 'daily'
     cumulative = 'cumulative'
 
+@enum.unique
+class PopulationAdjustment(enum.Enum):
+    raw = 'raw'
+    per_million = 'per_million'
+
 Option = namedtuple('Option', ['name', 'default', 'type'])
 
 class Options(QuerySerializeable):
     OPTIONS_LIST = [
         Option('yscale', YAxisScaling.log, YAxisScaling),
+        Option('population_adjustment', PopulationAdjustment.per_million,
+               PopulationAdjustment),
         Option('daily', DailyCumulative.cumulative, DailyCumulative),
         Option('daily_average_size', 7, int)
     ]
@@ -466,6 +473,7 @@ class Model(object):
 
     def make_dataset(self):
         to_graph_by_date = []
+        pop_adj = self.options['population_adjustment']
         for entity in self.entities.visible_ordered():
             data = self.data[type(entity)]
             data = entity.filter_dataframe(data)
@@ -480,7 +488,15 @@ class Model(object):
                 if average_size > 1:
                     data['deaths'] = data.deaths.rolling(
                         window=average_size, min_periods=1).mean()
-            data['y'] = data.deaths / (data.population / 1e6)
+
+            y_data = data.deaths
+            if pop_adj == PopulationAdjustment.per_million:
+                # for some reason, using /= here causes a different result
+                y_data = y_data / (data.population / 1e6)
+            elif pop_adj != PopulationAdjustment.raw:
+                raise ValueError(pop_adj)
+            data['y'] = y_data
+
             to_graph_by_date.append((entity, data))
 
         def get_data_since(data, condition_func):
@@ -803,6 +819,8 @@ class View(object):
     def build_options_layout(self):
         self.option_uis = {}
         self._build_enumerated_option('yscale', "Graph scaling:")
+        self._build_enumerated_option('population_adjustment',
+                                      "Popluation Adjustment:")
         self._build_enumerated_option('daily', "Daily/Cumulative:")
         self._build_int_option('daily_average_size',
                                "Averge daily value over past X days:")
@@ -867,8 +885,15 @@ class View(object):
         return lyt.column(divs)
 
     def make_plot(self, data):
-        plot = bokeh.plotting.figure(title="Covid 19 - deaths since 1/million",
-           x_axis_label='Days since 1 death/million', y_axis_label='Deaths/million',
+        y_label = 'Deaths'
+        pop_adj = self.model.options['population_adjustment']
+        if pop_adj == PopulationAdjustment.per_million:
+            y_label += '/million'
+        elif pop_adj != PopulationAdjustment.raw:
+            raise ValueError(pop_adj)
+        title = "Covid 19 - {} since 1/million".format(y_label)
+        plot = bokeh.plotting.figure(title=title,
+           x_axis_label='Days since 1 death/million', y_axis_label=y_label,
            y_axis_type=self.model.options['yscale'].name)
         user_agent = self.doc.session_context.request.headers.get('User-Agent')
         is_mobile = is_mobile_agent(user_agent)
