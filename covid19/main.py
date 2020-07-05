@@ -119,7 +119,7 @@ class Entity(object):
 class Country(Entity, namedtuple('CountryBase', ['name'])):
     pass
 
-class State(Entity, namedtuple('State', ['name'])):
+class State(Entity, namedtuple('StateBase', ['name'])):
     def __new__(cls, *args, **kwargs):
         # force non-abbreviated name
         self = super().__new__(cls, *args, **kwargs)
