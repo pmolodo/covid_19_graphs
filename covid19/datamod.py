@@ -3,97 +3,31 @@
 import attr
 import pandas
 
+from typing import List, Type
+
+from . import constants
+
+from .entity import Country, County, State
 from .retrievers import DataSource, DataRetriever, DataCache, DataCacheItem, \
-    FileCachedRetriever
-
-NYC_BURROUGHS = [
-    'New York County',
-    'Kings County',
-    'Bronx County',
-    'Richmond County',
-    'Queens County',
-]
-
-
-# make up nycity's fips as -1
-NYCITY_FIPS = -1
-
-state_to_abbrev = {
-    'Alabama': 'AL',
-    'Alaska': 'AK',
-    'American Samoa': 'AS',
-    'Arizona': 'AZ',
-    'Arkansas': 'AR',
-    'California': 'CA',
-    'Colorado': 'CO',
-    'Connecticut': 'CT',
-    'Delaware': 'DE',
-    'District of Columbia': 'DC',
-    'Federated States of Micronesia': 'FM',
-    'Florida': 'FL',
-    'Georgia': 'GA',
-    'Guam': 'GU',
-    'Hawaii': 'HI',
-    'Idaho': 'ID',
-    'Illinois': 'IL',
-    'Indiana': 'IN',
-    'Iowa': 'IA',
-    'Kansas': 'KS',
-    'Kentucky': 'KY',
-    'Louisiana': 'LA',
-    'Maine': 'ME',
-    'Marshall Islands': 'MH',
-    'Maryland': 'MD',
-    'Massachusetts': 'MA',
-    'Michigan': 'MI',
-    'Minnesota': 'MN',
-    'Mississippi': 'MS',
-    'Missouri': 'MO',
-    'Montana': 'MT',
-    'Nebraska': 'NE',
-    'Nevada': 'NV',
-    'New Hampshire': 'NH',
-    'New Jersey': 'NJ',
-    'New Mexico': 'NM',
-    'New York': 'NY',
-    'North Carolina': 'NC',
-    'North Dakota': 'ND',
-    'Northern Mariana Islands': 'MP',
-    'Ohio': 'OH',
-    'Oklahoma': 'OK',
-    'Oregon': 'OR',
-    'Palau': 'PW',
-    'Pennsylvania': 'PA',
-    'Puerto Rico': 'PR',
-    'Rhode Island': 'RI',
-    'South Carolina': 'SC',
-    'South Dakota': 'SD',
-    'Tennessee': 'TN',
-    'Texas': 'TX',
-    'Utah': 'UT',
-    'Vermont': 'VT',
-    'Virgin Islands': 'VI',
-    'Virginia': 'VA',
-    'Washington': 'WA',
-    'West Virginia': 'WV',
-    'Wisconsin': 'WI',
-    'Wyoming': 'WY',
-}
-
-
-abbrev_to_state = dict((abbrev, state) for (state, abbrev) in state_to_abbrev.items())
-
+    DataCacheKey, EntityDataType, FileCachedRetriever
 
 @attr.s(auto_attribs=True)
 class UsPopulationRetriever(DataRetriever):
-    _source: DataSource
+    _source = DataSource(
+        id='us_census',
+        name='United States Census Bureau',
+        urls={
+            'site': 'https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902',
+            'data': 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv',
+        },
+    )
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "US Population Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [EntityDataType(Country('United States'), 'population')]
 
     def retrieve(self) -> pandas.DataFrame:
         orig_url = self.source().urls['data']
@@ -113,8 +47,8 @@ class CountyPopulationRetriever(DataRetriever):
         return self.us_pop_cache_item.retriever.source()
 
     @classmethod
-    def data_name(cls) -> str:
-        return "US County Population Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [EntityDataType(County, 'population')]
 
     def retrieve(self) -> pandas.DataFrame:
         all_pop_data = self.us_pop_cache_item.get()
@@ -139,14 +73,14 @@ class CountyPopulationRetriever(DataRetriever):
         # one entry for "New York City" - need to deal with this foolishness specially
 
         nycity_pop = 0
-        for burrough in NYC_BURROUGHS:
+        for burrough in constants.NYC_BURROUGHS:
             burrough_data = all_pop_data[
                 (all_pop_data.STNAME == 'New York')
                 & (all_pop_data.CTYNAME == burrough)]
             assert len(burrough_data) == 1
             nycity_pop += burrough_data.POPESTIMATE2019.iat[0]
 
-        county_pop_data.loc[NYCITY_FIPS] = nycity_pop
+        county_pop_data.loc[constants.NYCITY_FIPS] = nycity_pop
         return county_pop_data
 
 
@@ -158,8 +92,8 @@ class StatePopulationRetriever(DataRetriever):
         return self.us_pop_cache_item.retriever.source()
 
     @classmethod
-    def data_name(cls) -> str:
-        return "US State Population Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [EntityDataType(State, 'population')]
 
     def retrieve(self) -> pandas.DataFrame:
         all_pop_data = self.us_pop_cache_item.get()
@@ -176,15 +110,22 @@ class StatePopulationRetriever(DataRetriever):
 
 
 @attr.s(auto_attribs=True)
-class CountryPopulationRetriever(DataRetriever):
-    _source: DataSource
+class UNCountryPopulationRetriever(DataRetriever):
+    _source = DataSource(
+        id='UN',
+        name="United Nations Department of Economic and Social Affairs",
+        urls={
+            'site': 'https://population.un.org/wpp/Download/Standard/CSV/',
+            'data': 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv',
+        },
+    )
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "Global Country Population Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [EntityDataType(Country, 'population')]
 
     def retrieve(self) -> pandas.DataFrame:
         orig_url = self.source().urls['data']
@@ -206,16 +147,27 @@ class CountryPopulationRetriever(DataRetriever):
 
 
 @attr.s(auto_attribs=True)
-class CountyDeathsRetriever(DataRetriever):
-    _source: DataSource
+class NYTimesCountyDataRetriever(DataRetriever):
+    _source = DataSource(
+        id='nytimes',
+        name="New York Times Covid-19 County Data",
+        urls={
+            'site': 'https://github.com/nytimes/covid-19-data',
+            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv',
+        },
+    )
+
     county_pop_cache_item: DataCacheItem
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "US County Deaths Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [
+            EntityDataType(County, 'deaths'),
+            EntityDataType(County, 'cases'),
+        ]
 
     def retrieve(self) -> pandas.DataFrame:
         url = self.source().urls['data']
@@ -224,7 +176,7 @@ class CountyDeathsRetriever(DataRetriever):
         #nycity_data = counties_raw_data[counties_raw_data.county == 'New York City'].copy()
         #nycity_data.fips = NYCITY_FIPS
 
-        counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = NYCITY_FIPS
+        counties_raw_data.loc[counties_raw_data.county == 'New York City', 'fips'] = constants.NYCITY_FIPS
 
         # Process county covid data
 
@@ -242,8 +194,7 @@ class CountyDeathsRetriever(DataRetriever):
         assert len(counties_fips - county_pop_fips) == 0
 
         counties_states = set(counties_data.state.unique())
-        abbrev_states = set(state_to_abbrev)
-        assert len(counties_states - abbrev_states) == 0
+        assert len(counties_states - constants.US_STATES) == 0
 
         counties_data = pandas.merge(counties_data, county_pop_data, left_on='fips', right_on=county_pop_data.index)
 
@@ -251,16 +202,27 @@ class CountyDeathsRetriever(DataRetriever):
 
 
 @attr.s(auto_attribs=True)
-class StateDeathsRetriever(DataRetriever):
-    _source: DataSource
+class NYTimesStateDataRetriever(DataRetriever):
+    _source = DataSource(
+        id='nytimes',
+        name="New York Times Covid-19 State Data",
+        urls={
+            'site': 'https://github.com/nytimes/covid-19-data',
+            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv',
+        },
+    )
+
     state_pop_cache_item: DataCacheItem
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "US State Deaths Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [
+            EntityDataType(State, 'deaths'),
+            EntityDataType(State, 'cases'),
+        ]
 
     def retrieve(self) -> pandas.DataFrame:
         states_raw_data = pandas.read_csv(self.source().urls['data'],
@@ -281,18 +243,17 @@ class StateDeathsRetriever(DataRetriever):
 
         # Confirm all states in nytimes data have abbreviations
         states_states = set(states_data.state.unique())
-        abbrev_states = set(state_to_abbrev)
-        assert len(states_states - abbrev_states) == 0
+        assert len(states_states - constants.US_STATES) == 0
 
         return states_data.rename(columns={'state': 'name'})
 
 
-# Note: I think this could be genericized to also handle CountyDeathsRetriever /
-# StateDeathsRetriever.  Only thing those do differently is that they also
-# do validation between the pop data + the deaths data, so would need a way to
-# handle that (probably with a parameter, to say no validation /
-# subset validation / exact match validation... as well as parameters to say
-# what fields to join on)
+# Note: I think this could be genericized to also handle
+# NYTimesCountyDataRetriever / NYTimesStateDataRetriever.  Only thing those
+# do differently is that they also do validation between the pop data + the
+# deaths data, so would need a way to handle that (probably with a parameter,
+# to say no validation / subset validation / exact match validation... as
+# well as parameters to say what fields to join on)
 @attr.s(auto_attribs=True)
 class PopModifiedDeathsRetriever(DataRetriever):
     '''Modifies the raw_retriever to add in popuplation data'''
@@ -302,14 +263,13 @@ class PopModifiedDeathsRetriever(DataRetriever):
     def source(self) -> DataSource:
         return self.raw_retreiver.source()
 
-    def data_name(self) -> str:
-        return self.raw_retreiver.data_name()
+    def data_types(self) -> List[EntityDataType]:
+        return self.raw_retreiver.data_types()
 
     def retrieve(self) -> pandas.DataFrame:
         country_deaths_data = self.raw_retreiver.retrieve()
 
         pop_data = self.pop_cache_item.get()
-
         country_deaths_data = pandas.merge(country_deaths_data, pop_data[
             ['country', 'population']], how='inner',
                                            left_on='name',
@@ -319,14 +279,24 @@ class PopModifiedDeathsRetriever(DataRetriever):
 
 @attr.s(auto_attribs=True)
 class JHUCountryDeathsData(DataRetriever):
-    _source: DataSource
+    _source = DataSource(
+        id='JHU',
+        name="Johns Hopkins University Center for Systems Science and Engineering",
+        urls={
+            'site': 'https://github.com/CSSEGISandData/COVID-19',
+            'data': 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv',
+        },
+    )
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "Country Deaths Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [
+            EntityDataType(Country, 'deaths'),
+            EntityDataType(Country, 'cases'),
+        ]
 
     def retrieve(self) -> pandas.DataFrame:
         country_deaths_raw_data = pandas.read_csv(self.source().urls['data'])
@@ -344,14 +314,24 @@ class JHUCountryDeathsData(DataRetriever):
 
 @attr.s(auto_attribs=True)
 class OWIDCountryDeathsRetriever(DataRetriever):
-    _source: DataSource
+    _source = DataSource(
+        id='OWID',
+        name='Our World In Data',
+            urls={
+            'site': 'https://github.com/owid/covid-19-data/tree/master/public/data',
+            'data': 'https://covid.ourworldindata.org/data/ecdc/full_data.csv',
+        },
+    )
 
     def source(self) -> DataSource:
         return self._source
 
     @classmethod
-    def data_name(cls) -> str:
-        return "Country Deaths Data"
+    def data_types(cls) -> List[EntityDataType]:
+        return [
+            EntityDataType(Country, 'deaths'),
+            EntityDataType(Country, 'cases'),
+        ]
 
     def retrieve(self) -> pandas.DataFrame:
         country_deaths_raw_data = pandas.read_csv(self.source().urls['data'],
@@ -367,84 +347,40 @@ class OWIDCountryDeathsRetriever(DataRetriever):
 
 data_cache = DataCache()
 
-data_cache.add('us_pop', FileCachedRetriever(
-    UsPopulationRetriever(
-        DataSource(
-            name="United States Census Bureau",
-            urls={
-                'site': 'https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html#par_textimage_70769902',
-                'data': 'https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/counties/totals/co-est2019-alldata.csv',
-            },
-        )
-    ),
+data_cache.add(FileCachedRetriever(
+    UsPopulationRetriever(),
     'co-est2019-alldata.zip',
 ))
 
-data_cache.add('county_pop', CountyPopulationRetriever(data_cache['us_pop']))
+data_cache.add(CountyPopulationRetriever(
+    data_cache[Country('United States'), 'population', 'us_census']))
 
-data_cache.add('state_pop', StatePopulationRetriever(data_cache['us_pop']))
+data_cache.add(StatePopulationRetriever(
+    data_cache[Country('United States'), 'population', 'us_census']))
 
-data_cache.add('country_pop', FileCachedRetriever(
-    CountryPopulationRetriever(
-        DataSource(
-            name="United Nations Department of Economic and Social Affairs",
-            urls={
-                'site': 'https://population.un.org/wpp/Download/Standard/CSV/',
-                'data': 'https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2019_TotalPopulationBySex.csv',
-            },
-        )
-    ),
+data_cache.add(FileCachedRetriever(
+    UNCountryPopulationRetriever(),
     'WPP2019_TotalPopulationBySex.zip',
 ))
 
-
-data_cache.add('county_deaths', CountyDeathsRetriever(
-    DataSource(
-        name="New York Times Covid-19 Data",
-        urls={
-            'site': 'https://github.com/nytimes/covid-19-data',
-            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv',
-        },
-    ),
-    data_cache['county_pop'],
+data_cache.add(NYTimesCountyDataRetriever(
+    data_cache[County, 'population', 'us_census'],
 ))
 
-data_cache.add('state_deaths', StateDeathsRetriever(
-    DataSource(
-        name="New York Times Covid-19 Data",
-        urls={
-            'site': 'https://github.com/nytimes/covid-19-data',
-            'data': 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv',
-        },
-    ),
-    data_cache['state_pop'],
+data_cache.add(NYTimesStateDataRetriever(
+    data_cache[State, 'population', 'us_census'],
 ))
 
-data_cache.add('country_deaths', PopModifiedDeathsRetriever(
-    OWIDCountryDeathsRetriever(
-        DataSource(
-            name="Our World In Data",
-                urls={
-                'site': 'https://github.com/owid/covid-19-data/tree/master/public/data',
-                'data': 'https://covid.ourworldindata.org/data/ecdc/full_data.csv',
-            },
-        )
-    ),
-    data_cache['country_pop'],
+data_cache.add(PopModifiedDeathsRetriever(
+    OWIDCountryDeathsRetriever(),
+    data_cache[Country, 'population', 'UN'],
 ))
 
 # Currently not used - doesn't have data for US, or summed data for Australia,
 # and a few other countries
 
-# data_cache.add('JHUcountry_deaths', PopModifiedDeathsRetriever(
-#     JHUCountryDeathsData(
-#         DataSource(
-#             name="Johns Hopkins University Center for Systems Science and Engineering",
-#             urls={
-#                 'site': 'https://github.com/CSSEGISandData/COVID-19',
-#                 'data': 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv',
-#             },
-#         )
-#     ),
-#     data_cache['country_pop'],
+# data_cache.add(PopModifiedDeathsRetriever(
+#     JHUCountryDeathsData(),
+#     data_cache[Country, 'population', 'UN'],
 # ))
+

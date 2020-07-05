@@ -19,6 +19,10 @@ import bokeh.plotting
 
 from collections import OrderedDict, namedtuple
 
+from .entity import Country, County, Entity, State
+from .retrievers import DataCacheKey, EntityDataType
+
+
 ################################################################################
 # Constants
 
@@ -71,75 +75,6 @@ def is_mobile_agent(user_agent):
     return bool(MOBILE_REG_V.search(user_agent[0:4]))
 
 ################################################################################
-# DataRetrievers
-
-
-
-################################################################################
-# Entities - Country / State / County data types
-
-
-def filter_dataframe(dataframe, *misc_conditions, **equality_conditions):
-    if not misc_conditions and not equality_conditions:
-        return dataframe
-    conditions = list(misc_conditions)
-    for key, value in equality_conditions.items():
-        conditions.append(getattr(dataframe, key) == value)
-
-    joint_condition = None
-    for condition in conditions:
-        if joint_condition is None:
-            joint_condition = condition
-        else:
-            joint_condition &= condition
-    return dataframe[joint_condition]
-
-
-class Entity(object):
-    def __str__(self):
-        return ', '.join(str(x) for x in self)
-
-    def serialize(self):
-        for piece in self:
-            assert SEP not in piece, \
-                "Name {!r} contained invalid character {}".format(piece, SEP)
-        return SEP.join(str(x) for x in self)
-
-    @classmethod
-    def deserialize(cls, raw):
-        return cls(*raw.split(SEP))
-
-    def dataframe_conditions(self):
-        return {field: value for field, value in zip(self._fields, self)}
-
-    def filter_dataframe(self, dataframe):
-        return filter_dataframe(dataframe, **self.dataframe_conditions())
-
-
-class Country(Entity, namedtuple('CountryBase', ['name'])):
-    pass
-
-class State(Entity, namedtuple('StateBase', ['name'])):
-    def __new__(cls, *args, **kwargs):
-        # force non-abbreviated name
-        self = super().__new__(cls, *args, **kwargs)
-        if self.name in datamod.abbrev_to_state:
-            self = State(datamod.abbrev_to_state[self.name])
-        return self
-
-class County(Entity, namedtuple('CountyBase', ['name', 'state'])):
-    def __new__(cls, *args, **kwargs):
-        # force abbreviated state name
-        self = super().__new__(cls, *args, **kwargs)
-        if self.state in datamod.state_to_abbrev:
-            self = County(self.name, datamod.state_to_abbrev[self.state])
-        return self
-
-    def dataframe_conditions(self):
-        conditions = super().dataframe_conditions()
-        conditions['state'] = datamod.abbrev_to_state[conditions['state']]
-        return conditions
-
 
 DEFAULT_INITIAL_ENTITIES = [
     Country('Italy'),
@@ -195,6 +130,11 @@ class QuerySerializeable(abc.ABC):
 # what will be displayed in UIs
 
 @enum.unique
+class YAxisStat(enum.Enum):
+    deaths = 'deaths'
+    cases = 'cases'
+
+@enum.unique
 class YAxisScaling(enum.Enum):
     log = 'logarithmic'
     linear = 'linear'
@@ -207,12 +147,13 @@ class DailyCumulative(enum.Enum):
 @enum.unique
 class PopulationAdjustment(enum.Enum):
     raw = 'raw'
-    per_million = 'per_million'
+    per_million = 'per million'
 
 Option = namedtuple('Option', ['name', 'default', 'type'])
 
 class Options(QuerySerializeable):
     OPTIONS_LIST = [
+        Option('ystat', YAxisStat.deaths, YAxisStat),
         Option('yscale', YAxisScaling.log, YAxisScaling),
         Option('population_adjustment', PopulationAdjustment.per_million,
                PopulationAdjustment),
@@ -445,37 +386,46 @@ class Model(object):
     logic for handling callbacks / notifications'''
 
     def __init__(self):
-        self.cache_names_by_entity = {
-            County: 'county_deaths',
-            State: 'state_deaths',
-            Country: 'country_deaths',
-        }
-        self.data = {key: datamod.data_cache.get(val)
-                     for key, val in self.cache_names_by_entity.items()}
-
         self.entities = DisplayEntities()
         self.options = Options()
+        self.data_items = {}
+        self.set_data()
+
+    def set_data(self):
+        all_keys = datamod.data_cache.keys()
+        self.data_items.clear()
+        for entity in (Country, State, County):
+            # TODO: make data_cache use hierarchical keying
+            stat = self.options['ystat'].name
+            desired_datatype = EntityDataType(entity, stat)
+            valid_keys = []
+            for key in all_keys:
+                if key.entity_data_type == desired_datatype:
+                    valid_keys.append(key)
+            # for now, we should only every have one valid data source per
+            # EntityDataType
+            assert len(valid_keys) == 1
+            self.data_items[entity] = datamod.data_cache[valid_keys[0]]
 
     def last_update_time(self):
-        return max(datamod.data_cache[name].update_time
-                   for name in self.cache_names_by_entity.values())
+        return max(item.update_time for item in self.data_items.values())
 
     @staticmethod
     def deaths_per_mill_greater_1(data):
         return data.deaths / (data.population / 1e6) >= 1.0
 
     def graphable_entities(self, entity_type, **conditions):
-        dataframe = self.data[entity_type]
-        dataframe = filter_dataframe(dataframe,
-                                     self.deaths_per_mill_greater_1(dataframe),
-                                     **conditions)
+        from .entity import filter_dataframe
+        dataframe = self.data_items[entity_type].get()
+        dataframe = filter_dataframe(
+            dataframe, self.deaths_per_mill_greater_1(dataframe), **conditions)
         return sorted(dataframe.name.unique())
 
     def make_dataset(self):
         to_graph_by_date = []
         pop_adj = self.options['population_adjustment']
         for entity in self.entities.visible_ordered():
-            data = self.data[type(entity)]
+            data = self.data_items[type(entity)].get()
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
 
@@ -818,6 +768,7 @@ class View(object):
 
     def build_options_layout(self):
         self.option_uis = {}
+        self._build_enumerated_option('ystat', "Statistic to graph:")
         self._build_enumerated_option('yscale', "Graph scaling:")
         self._build_enumerated_option('population_adjustment',
                                       "Popluation Adjustment:")
@@ -871,7 +822,14 @@ class View(object):
                 continue
             seen.append(source)
             lines = []
-            lines.append('{} from:'.format(retriever.data_name()))
+            for data_type in retriever.data_types():
+                entity = data_type.entity
+                if isinstance(entity, Entity):
+                    entity_name = str(entity)
+                else:
+                    entity_name = entity.__name__
+                lines.append('<b>{} {}:</b>'.format(entity_name,
+                                                    data_type.data_type))
             lines.append('{}'.format(source.name))
             links = ['<a href="{}">{}</a>'.format(url, name)
                      for name, url in source.urls.items()]
