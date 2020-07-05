@@ -25,7 +25,7 @@ class EntityDataType(object):
     data_type: str
 
 
-@attr.s(auto_attribs=True, frozen=True)
+@attr.s(auto_attribs=True, frozen=True, repr=False)
 class DataCacheKey(object):
     entity_data_type: EntityDataType
     source_id: str
@@ -45,6 +45,20 @@ class DataCacheKey(object):
         else:
             raise ValueError('{}.create must have 1, 2 or 3 args - got: {}'
                              .format(cls.__name__, input))
+
+    def __repr__(self):
+        entity = self.entity_data_type.entity
+        if inspect.isclass(entity):
+            entity_repr = entity.__name__
+        else:
+            entity_repr = repr(entity)
+        return '{}.create({}, {!r}, {!r})'.format(
+            type(self).__name__,
+            entity_repr,
+            self.entity_data_type.data_type,
+            self.source_id
+        )
+
 
 DataCacheKeyTuple = Union[Tuple[DataCacheKey],
                           Tuple[EntityDataType, str],
