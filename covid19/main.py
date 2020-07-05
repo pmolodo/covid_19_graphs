@@ -19,7 +19,7 @@ import bokeh.plotting
 
 from collections import OrderedDict, namedtuple
 
-from .entity import Country, County, Entity, State
+from .entities import Country, County, Entity, State
 from .retrievers import DataCacheKey, EntityDataType
 
 
@@ -415,7 +415,7 @@ class Model(object):
         return data.deaths / (data.population / 1e6) >= 1.0
 
     def graphable_entities(self, entity_type, **conditions):
-        from .entity import filter_dataframe
+        from .entities import filter_dataframe
         dataframe = self.data_items[entity_type].get()
         dataframe = filter_dataframe(
             dataframe, self.deaths_per_mill_greater_1(dataframe), **conditions)

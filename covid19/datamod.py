@@ -7,9 +7,9 @@ from typing import List, Type
 
 from . import constants
 
-from .entity import Country, County, State
+from .entities import Country, County, State
 from .retrievers import DataSource, DataRetriever, DataCache, DataCacheItem, \
-    DataCacheKey, EntityDataType, FileCachedRetriever
+    EntityDataType, FileCachedRetriever
 
 @attr.s(auto_attribs=True)
 class UsPopulationRetriever(DataRetriever):

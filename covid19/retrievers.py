@@ -10,14 +10,14 @@ import pathlib
 import os
 import typing
 
-from . import entity
+from . import entities
 
 from typing import List, Optional, Tuple, Type, Union
 
 THIS_FILE = inspect.getsourcefile(lambda: None)
 
 
-EntityTypeOrInstance = Union[Type[entity.Entity], entity.Entity]
+EntityTypeOrInstance = Union[Type[entities.Entity], entities.Entity]
 
 @attr.s(auto_attribs=True, frozen=True)
 class EntityDataType(object):
