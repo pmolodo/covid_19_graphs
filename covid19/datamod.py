@@ -339,9 +339,10 @@ class OWIDCountryDeathsRetriever(DataRetriever):
         country_deaths_data = country_deaths_raw_data.rename(columns={
             'location': 'name',
             'total_deaths': 'deaths',
+            'total_cases': 'cases',
         })
         country_deaths_data = country_deaths_data.drop(
-            ['new_cases', 'new_deaths', 'total_cases'], axis='columns')
+            ['new_cases', 'new_deaths'], axis='columns')
         return country_deaths_data
 
 

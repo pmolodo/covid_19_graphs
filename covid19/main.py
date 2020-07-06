@@ -428,18 +428,19 @@ class Model(object):
             data = self.data_items[type(entity)].get()
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
-
+            stat_name = self.options['ystat'].name
+            y_data = data[stat_name]
             if self.options['daily'] == DailyCumulative.daily:
                 data = data.copy()
-                data['deaths'] = data.deaths.diff()
+                y_data = data[stat_name]
+                y_data = y_data.diff()
                 # The very first entry will be NaN, set to 0 instead
-                data.iloc[0, data.columns.get_loc('deaths')] = 0
+                data.iloc[0, data.columns.get_loc(stat_name)] = 0
                 average_size = self.options['daily_average_size']
                 if average_size > 1:
-                    data['deaths'] = data.deaths.rolling(
+                    y_data = y_data.rolling(
                         window=average_size, min_periods=1).mean()
 
-            y_data = data.deaths
             if pop_adj == PopulationAdjustment.per_million:
                 # for some reason, using /= here causes a different result
                 y_data = y_data / (data.population / 1e6)
@@ -769,6 +770,9 @@ class View(object):
     def build_options_layout(self):
         self.option_uis = {}
         self._build_enumerated_option('ystat', "Statistic to graph:")
+        ystat_select_ui = self.option_uis['ystat']
+        ystat_select_ui.on_change('value',
+                                  lambda attr, old, new: self.model.set_data())
         self._build_enumerated_option('yscale', "Graph scaling:")
         self._build_enumerated_option('population_adjustment',
                                       "Popluation Adjustment:")
@@ -795,6 +799,7 @@ class View(object):
 
         select_ui.on_change('value', on_change)
         self.option_uis[option_name] = select_ui
+        return select_ui
 
     def _build_int_option(self, option_name, title):
         current = self.model.options[option_name]
@@ -843,13 +848,13 @@ class View(object):
         return lyt.column(divs)
 
     def make_plot(self, data):
-        y_label = 'Deaths'
+        y_label = self.model.options['ystat'].value.capitalize()
         pop_adj = self.model.options['population_adjustment']
         if pop_adj == PopulationAdjustment.per_million:
             y_label += '/million'
         elif pop_adj != PopulationAdjustment.raw:
             raise ValueError(pop_adj)
-        title = "Covid 19 - {} since 1/million".format(y_label)
+        title = "Covid 19 - {} since 1 death/million".format(y_label)
         plot = bokeh.plotting.figure(title=title,
            x_axis_label='Days since 1 death/million', y_axis_label=y_label,
            y_axis_type=self.model.options['yscale'].name)
