@@ -427,12 +427,11 @@ class Model(object):
         for entity in self.entities.visible_ordered():
             data = self.data_items[type(entity)].get()
             data = entity.filter_dataframe(data)
+            data = data.copy()
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
             y_data = data[stat_name]
             if self.options['daily'] == DailyCumulative.daily:
-                data = data.copy()
-                y_data = data[stat_name]
                 y_data = y_data.diff()
                 # The very first entry will be NaN, set to 0 instead
                 data.iloc[0, data.columns.get_loc(stat_name)] = 0
