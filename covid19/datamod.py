@@ -313,7 +313,7 @@ class JHUCountryDeathsData(DataRetriever):
 
 
 @attr.s(auto_attribs=True)
-class OWIDCountryDeathsRetriever(DataRetriever):
+class OWIDCountryDataRetriever(DataRetriever):
     _source = DataSource(
         id='OWID',
         name='Our World In Data',
@@ -334,16 +334,16 @@ class OWIDCountryDeathsRetriever(DataRetriever):
         ]
 
     def retrieve(self) -> pandas.DataFrame:
-        country_deaths_raw_data = pandas.read_csv(self.source().urls['data'],
+        country_raw_data = pandas.read_csv(self.source().urls['data'],
                                                   parse_dates=['date'])
-        country_deaths_data = country_deaths_raw_data.rename(columns={
+        country_data = country_raw_data.rename(columns={
             'location': 'name',
             'total_deaths': 'deaths',
             'total_cases': 'cases',
         })
-        country_deaths_data = country_deaths_data.drop(
+        country_data = country_data.drop(
             ['new_cases', 'new_deaths'], axis='columns')
-        return country_deaths_data
+        return country_data
 
 
 data_cache = DataCache()
@@ -373,7 +373,7 @@ data_cache.add(NYTimesStateDataRetriever(
 ))
 
 data_cache.add(PopModifiedDeathsRetriever(
-    OWIDCountryDeathsRetriever(),
+    OWIDCountryDataRetriever(),
     data_cache[Country, 'population', 'UN'],
 ))
 
