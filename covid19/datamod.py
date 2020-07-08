@@ -225,6 +225,7 @@ class NYTimesStateDataRetriever(DataRetriever):
         ]
 
     def retrieve(self) -> pandas.DataFrame:
+        # final columns: name, fips, population, cases, deaths
         states_raw_data = pandas.read_csv(self.source().urls['data'],
                                           parse_dates=['date'])
         states_data = states_raw_data.astype({'fips': int})
@@ -346,6 +347,117 @@ class OWIDCountryDataRetriever(DataRetriever):
         return country_data
 
 
+@attr.s(auto_attribs=True)
+class CovidTrackingStateDataRetriever(DataRetriever):
+    _source = DataSource(
+        id='covid_tracking',
+        name='Covid Tracking Project',
+            urls={
+            'site': 'https://covidtracking.com/data/api',
+            'data': 'https://covidtracking.com/api/v1/states/daily.csv',
+        },
+    )
+
+    state_pop_cache_item: DataCacheItem
+
+    def source(self) -> DataSource:
+        return self._source
+
+    @classmethod
+    def data_types(cls) -> List[EntityDataType]:
+        return [
+            EntityDataType(State, 'deaths'),
+            EntityDataType(State, 'cases'),
+            EntityDataType(State, 'hospitalizations'),
+            EntityDataType(State, 'icu'),
+            EntityDataType(State, 'ventilator'),
+        ]
+
+    def retrieve(self) -> pandas.DataFrame:
+        # final columns:
+        #   name, fips, population,
+        #   cases,
+        #   deaths,
+        #   hospitalizations, hospitalizations:current,
+        #   icu, icu:current,
+        #   ventilator, ventilator:current
+
+        raw_data = pandas.read_csv(self.source().urls['data'],
+                                                  parse_dates=['date'])
+
+        # start by dropping fields project itself has declared deprecated
+        DEPRECATED = [
+            'checkTimeEt',
+            'commercialScore',
+            'dateChecked',
+            'dateModified',
+            'grade',
+            'hash',
+            'hospitalized',
+            'negativeIncrease',
+            'negativeRegularScore',
+            'negativeScore',
+            'posNeg',
+            'positiveScore',
+            'score',
+            'total',
+        ]
+
+        # ...and fields we currently don't use...
+        unused = [
+            'positiveCasesViral',
+            'positiveTestsViral',
+            'negative',
+            'pending',
+            'recovered',
+            'dataQualityGrade',
+            'lastUpdateEt',
+            'totalTestsViral',
+            'negativeTestsViral',
+            'positiveIncrease',
+            'totalTestResults',
+            'totalTestResultsIncrease',
+            'deathIncrease',
+            'hospitalizedIncrease',
+        ]
+        data = raw_data.drop(DEPRECATED + unused, axis='columns')
+
+        data = data.rename(columns={
+            'positive': 'cases',
+            'death': 'deaths',
+            'hospitalizedCumulative': 'hospitalizations',
+            'hospitalizedCurrently': 'hospitalizations:current',
+            'inIcuCumulative': 'icu',
+            'inIcuCurrently': 'icu:current',
+            'onVentilatorCumulative': 'ventilator',
+            'onVentilatorCurrently': 'ventilator:current',
+        })
+
+        # kept_as_is = ['date', 'fips']
+
+        state_pop_data = self.state_pop_cache_item.get()
+
+        # data has some territories, for which we don't yet have pop data...
+        state_pop_fips = set(state_pop_data.index.unique())
+        # state_pop_data has 50 states + DC
+        assert len(state_pop_fips) == 51
+        states_fips = set(data.fips.unique())
+        assert state_pop_fips.issubset(states_fips)
+
+        data = pandas.merge(data, state_pop_data['population'], how='inner',
+                            left_on='fips', right_on=state_pop_data.index)
+
+        # Convert all states to unabbreviated values
+        data['name'] = [constants.ABBREV_TO_STATE[x] for x in data.state]
+        data = data.drop(['state'], axis='columns')
+
+        # the covid tracking project data goes by date, descending - put it
+        # ascending
+        data = data.sort_values(['date']).reset_index(drop=True)
+
+        return data
+
+
 data_cache = DataCache()
 
 data_cache.add(FileCachedRetriever(
@@ -369,6 +481,10 @@ data_cache.add(NYTimesCountyDataRetriever(
 ))
 
 data_cache.add(NYTimesStateDataRetriever(
+    data_cache[State, 'population', 'us_census'],
+))
+
+data_cache.add(CovidTrackingStateDataRetriever(
     data_cache[State, 'population', 'us_census'],
 ))
 

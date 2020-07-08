@@ -402,10 +402,15 @@ class Model(object):
             for key in all_keys:
                 if key.entity_data_type == desired_datatype:
                     valid_keys.append(key)
-            # for now, we should only every have one valid data source per
-            # EntityDataType
-            assert len(valid_keys) == 1
-            self.data_items[entity] = datamod.data_cache[valid_keys[0]]
+
+            # right now, hard-code state data to covid_tracking
+            if len(valid_keys) == 1:
+                key = valid_keys[0]
+            else:
+                assert entity == State
+                key = [x for x in valid_keys
+                       if x.source_id == 'covid_tracking'][0]
+            self.data_items[entity] = datamod.data_cache[key]
 
     def last_update_time(self):
         return max(item.update_time for item in self.data_items.values())
@@ -427,10 +432,11 @@ class Model(object):
         for entity in self.entities.visible_ordered():
             data = self.data_items[type(entity)].get()
             data = entity.filter_dataframe(data)
-            data = data.copy()
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
             y_data = data[stat_name]
+            data = data[y_data.notna()]
+            data = data.copy()
             if self.options['daily'] == DailyCumulative.daily:
                 y_data = y_data.diff()
                 # The very first entry will be NaN, set to 0 instead
