@@ -442,18 +442,17 @@ class Model(object):
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
-            try:
-                y_data = data[stat_name]
-            except KeyError:
+            if stat_name not in data.columns:
                 continue
-            data = data[y_data.notna()]
+            data = data[data[stat_name].notna()]
             if data.empty:
                 continue
-            data = data.copy()
+            data = data.reset_index(drop=True)
+            y_data = data[stat_name]
             if self.options['daily'] == DailyCumulative.daily:
                 y_data = y_data.diff()
                 # The very first entry will be NaN, set to 0 instead
-                data.iloc[0, data.columns.get_loc(stat_name)] = 0
+                y_data[0] = 0
                 average_size = self.options['daily_average_size']
                 if average_size > 1:
                     y_data = y_data.rolling(
