@@ -1,3 +1,5 @@
+SEP = ';'
+
 NYC_BURROUGHS = [
     'New York County',
     'Kings County',

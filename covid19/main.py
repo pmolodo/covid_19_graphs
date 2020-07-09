@@ -24,12 +24,6 @@ from .retrievers import DataCacheKey, EntityDataType
 
 
 ################################################################################
-# Constants
-
-SEP = ';'
-
-
-################################################################################
 # Colors
 
 # Thanks to Kenneth Kelly + Ohad Schneider:
