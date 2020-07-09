@@ -870,7 +870,10 @@ class View(object):
         return lyt.column(divs)
 
     def make_plot(self, data):
-        y_label = self.model.options['ystat'].value.capitalize()
+        y_label = '{} {}'.format(
+            self.model.options['daily'].value.capitalize(),
+            self.model.options['ystat'].value.capitalize(),
+        )
         pop_adj = self.model.options['population_adjustment']
         if pop_adj == PopulationAdjustment.per_million:
             y_label += '/million'
