@@ -141,9 +141,10 @@ class YAxisScaling(enum.Enum):
     linear = 'linear'
 
 @enum.unique
-class DailyCumulative(enum.Enum):
+class DailyCumulativeCurrent(enum.Enum):
     daily = 'daily'
     cumulative = 'cumulative'
+    current = 'current'
 
 @enum.unique
 class PopulationAdjustment(enum.Enum):
@@ -158,7 +159,8 @@ class Options(QuerySerializeable):
         Option('yscale', YAxisScaling.log, YAxisScaling),
         Option('population_adjustment', PopulationAdjustment.per_million,
                PopulationAdjustment),
-        Option('daily', DailyCumulative.cumulative, DailyCumulative),
+        Option('daily', DailyCumulativeCurrent.cumulative,
+               DailyCumulativeCurrent),
         Option('daily_average_size', 7, int)
     ]
 
@@ -442,6 +444,8 @@ class Model(object):
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
+            if self.options['daily'] == DailyCumulativeCurrent.current:
+                stat_name += ':current'
             if stat_name not in data.columns:
                 continue
             data = data[data[stat_name].notna()]
@@ -449,7 +453,7 @@ class Model(object):
                 continue
             data = data.reset_index(drop=True)
             y_data = data[stat_name]
-            if self.options['daily'] == DailyCumulative.daily:
+            if self.options['daily'] == DailyCumulativeCurrent.daily:
                 y_data = y_data.diff()
                 # The very first entry will be NaN, set to 0 instead
                 y_data[0] = 0
