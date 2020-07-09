@@ -133,6 +133,7 @@ class QuerySerializeable(abc.ABC):
 class YAxisStat(enum.Enum):
     deaths = 'deaths'
     cases = 'cases'
+    hospitalizations = 'hospitalizations'
 
 @enum.unique
 class YAxisScaling(enum.Enum):
@@ -403,10 +404,12 @@ class Model(object):
                 if key.entity_data_type == desired_datatype:
                     valid_keys.append(key)
 
-            # right now, hard-code state data to covid_tracking
-            if len(valid_keys) == 1:
+            if not valid_keys:
+                continue
+            elif len(valid_keys) == 1:
                 key = valid_keys[0]
             else:
+                # right now, hard-code state data to covid_tracking
                 assert entity == State
                 key = [x for x in valid_keys
                        if x.source_id == 'covid_tracking'][0]
@@ -421,6 +424,8 @@ class Model(object):
 
     def graphable_entities(self, entity_type, **conditions):
         from .entities import filter_dataframe
+        if entity_type not in self.data_items:
+            return []
         dataframe = self.data_items[entity_type].get()
         dataframe = filter_dataframe(
             dataframe, self.deaths_per_mill_greater_1(dataframe), **conditions)
@@ -430,12 +435,20 @@ class Model(object):
         to_graph_by_date = []
         pop_adj = self.options['population_adjustment']
         for entity in self.entities.visible_ordered():
-            data = self.data_items[type(entity)].get()
+            try:
+                data = self.data_items[type(entity)].get()
+            except KeyError:
+                continue
             data = entity.filter_dataframe(data)
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
-            y_data = data[stat_name]
+            try:
+                y_data = data[stat_name]
+            except KeyError:
+                continue
             data = data[y_data.notna()]
+            if data.empty:
+                continue
             data = data.copy()
             if self.options['daily'] == DailyCumulative.daily:
                 y_data = y_data.diff()
@@ -746,7 +759,8 @@ class View(object):
             all_counties = self.model.graphable_entities(
                 County, state=self.pick_state_dropdown.value)
             self.pick_county_dropdown.options = all_counties
-            self.pick_county_dropdown.value = all_counties[0]
+            if all_counties:
+                self.pick_county_dropdown.value = all_counties[0]
 
         self.pick_state_dropdown.on_change('value', pick_state_changed)
 
