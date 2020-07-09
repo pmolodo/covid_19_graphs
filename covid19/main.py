@@ -142,7 +142,7 @@ class YAxisScaling(enum.Enum):
 
 @enum.unique
 class DailyCumulativeCurrent(enum.Enum):
-    daily = 'daily'
+    daily = 'daily increase'
     cumulative = 'cumulative'
     current = 'current'
 
@@ -871,8 +871,8 @@ class View(object):
 
     def make_plot(self, data):
         y_label = '{} {}'.format(
-            self.model.options['daily'].value.capitalize(),
-            self.model.options['ystat'].value.capitalize(),
+            self.model.options['daily'].value.title(),
+            self.model.options['ystat'].value.title(),
         )
         pop_adj = self.model.options['population_adjustment']
         if pop_adj == PopulationAdjustment.per_million:
