@@ -434,14 +434,24 @@ class Model(object):
         return sorted(dataframe.name.unique())
 
     def make_dataset(self):
-        to_graph_by_date = []
+        to_graph = []
         pop_adj = self.options['population_adjustment']
+
+        def get_data_since(data, condition_func):
+            condition = condition_func(data)
+            since_data = data[condition].reset_index(drop=True)
+            day0 = since_data.date.min()
+            since_data['days'] = (since_data.date - day0).apply(lambda x: x.days)
+            return since_data
+
         for entity in self.entities.visible_ordered():
             try:
                 data = self.data_items[type(entity)].get()
             except KeyError:
                 continue
             data = entity.filter_dataframe(data)
+            data = get_data_since(data, self.deaths_per_mill_greater_1)
+
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
             if self.options['daily'] == DailyCumulativeCurrent.current:
@@ -469,21 +479,8 @@ class Model(object):
                 raise ValueError(pop_adj)
             data['y'] = y_data
 
-            to_graph_by_date.append((entity, data))
-
-        def get_data_since(data, condition_func):
-            condition = condition_func(data)
-            since_data = data[condition].reset_index(drop=True)
-            day0 = since_data.date.min()
-            since_data['days'] = (since_data.date - day0).apply(lambda x: x.days)
-            return since_data
-
-        to_graph_by_since = []
-
-        for entity, data in to_graph_by_date:
-            since_data = get_data_since(data, self.deaths_per_mill_greater_1)
-            to_graph_by_since.append((entity, since_data))
-        return to_graph_by_since
+            to_graph.append((entity, data))
+        return to_graph
 
     def serializeable_members(self):
         def is_serializeable(x):
