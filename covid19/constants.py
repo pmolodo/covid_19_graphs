@@ -87,7 +87,9 @@ US_STATES = set(STATE_TO_ABBREV)
 # Thanks to Kenneth Kelly + Ohad Schneider:
 # https://stackoverflow.com/a/13781114/920545
 KELLY_COLORS_DICT = collections.OrderedDict(
+    # Black isn't technically a Kelly color, but I'm adding it
     black=(0,0,0),
+
     vivid_yellow=(255, 179, 0),
 
     # the default strong_purple was too dark and easily confused with black...
@@ -99,6 +101,9 @@ KELLY_COLORS_DICT = collections.OrderedDict(
     vivid_red=(193, 0, 32),
     grayish_yellow=(206, 162, 98),
     medium_gray=(129, 112, 102),
+
+    # light_gray isn't technically a Kelly color, but I'm adding it
+    light_gray=(240, 240, 240),
 
     # these aren't good for people with defective color vision:
     vivid_green=(0, 125, 52),
