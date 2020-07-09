@@ -760,7 +760,7 @@ class View(object):
                                       "Popluation Adjustment:")
         self._build_enumerated_option('daily', "Daily/Cumulative:")
         self._build_int_option('daily_average_size',
-                               "Averge daily value over past X days:")
+                               "Averge daily value over past X days")
         return lyt.column(list(self.option_uis.values()))
 
     def _build_enumerated_option(self, option_name, title):
