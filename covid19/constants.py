@@ -89,7 +89,11 @@ US_STATES = set(STATE_TO_ABBREV)
 KELLY_COLORS_DICT = collections.OrderedDict(
     black=(0,0,0),
     vivid_yellow=(255, 179, 0),
-    strong_purple=(128, 62, 117),
+
+    # the default strong_purple was too dark and easily confused with black...
+    #strong_purple=(128, 62, 117),
+    strong_purple=(150, 77, 147),
+
     vivid_orange=(255, 104, 0),
     very_light_blue=(166, 189, 215),
     vivid_red=(193, 0, 32),
