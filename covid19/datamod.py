@@ -369,8 +369,8 @@ class CovidTrackingStateDataRetriever(DataRetriever):
             EntityDataType(State, 'deaths'),
             EntityDataType(State, 'cases'),
             EntityDataType(State, 'hospitalizations'),
-            EntityDataType(State, 'icu'),
-            EntityDataType(State, 'ventilator'),
+            # EntityDataType(State, 'icu'),
+            # EntityDataType(State, 'ventilator'),
         ]
 
     def retrieve(self) -> pandas.DataFrame:
