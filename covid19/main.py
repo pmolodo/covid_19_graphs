@@ -374,10 +374,12 @@ class Model(object):
             elif len(valid_keys) == 1:
                 key = valid_keys[0]
             else:
-                # right now, hard-code state data to covid_tracking
-                assert entity == State
-                key = [x for x in valid_keys
-                       if x.source_id == 'covid_tracking'][0]
+                # # right now, hard-code state data to covid_tracking
+                # assert entity == State
+                # key = [x for x in valid_keys
+                #        if x.source_id == 'covid_tracking'][0]
+                raise RuntimeError("more than one source for {}/{} data"
+                                   .format(entity.__name__, stat))
             self.data_items[entity] = datamod.data_cache[key]
 
     def last_update_time(self):

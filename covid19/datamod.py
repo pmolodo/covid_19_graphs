@@ -480,9 +480,9 @@ data_cache.add(NYTimesCountyDataRetriever(
     data_cache[County, 'population', 'us_census'],
 ))
 
-data_cache.add(NYTimesStateDataRetriever(
-    data_cache[State, 'population', 'us_census'],
-))
+# data_cache.add(NYTimesStateDataRetriever(
+#     data_cache[State, 'population', 'us_census'],
+# ))
 
 data_cache.add(CovidTrackingStateDataRetriever(
     data_cache[State, 'population', 'us_census'],
