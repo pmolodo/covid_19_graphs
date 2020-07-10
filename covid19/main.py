@@ -20,7 +20,7 @@ import bokeh.plotting
 from collections import namedtuple
 
 from .constants import KELLY_COLORS
-from .entities import Country, County, Entity, State
+from .entities import Country, County, Entity, State, filter_dataframe
 from .retrievers import DataCacheKey, EntityDataType
 
 
@@ -456,6 +456,16 @@ class Model(object):
             elif pop_adj != PopulationAdjustment.raw:
                 raise ValueError(pop_adj)
             data['y'] = y_data
+
+            if self.options['yscale'] == YAxisScaling.log:
+                # if we're using logarithmic scaling, we can't display 0 values
+                # by filtering out 0's, we avoid two issues:
+                #   - we don't get odd-looking breaks in the graph
+                #   - if a dataset starts with a long series of 0s (ie, deaths),
+                #     we don't set the left edge of our graph to a point way
+                #     before we actually have something to graph
+                data = filter_dataframe(data, data.y > 0)
+                data = data.reset_index(drop=True)
 
             to_graph.append((entity, data))
         return to_graph
