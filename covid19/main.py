@@ -869,7 +869,7 @@ class View(object):
         x_axis_type = 'auto'
         if xstat == XAxisStat.date:
             x_axis_type = 'datetime'
-        title = "Covid 19 - {} since 1 death/million".format(y_label)
+        title = "Covid 19 - {} by {}".format(y_label, xstat.value)
         plot = bokeh.plotting.figure(title=title,
             x_axis_label=xstat.value, x_axis_type=x_axis_type,
             y_axis_label=y_label, y_axis_type=self.model.options['yscale'].name)
