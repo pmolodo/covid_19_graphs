@@ -99,6 +99,11 @@ class YAxisStat(enum.Enum):
     hospitalizations = 'hospitalizations'
 
 @enum.unique
+class XAxisStat(enum.Enum):
+    days1DM = 'Days since 1 death/million'
+    date = 'Date'
+
+@enum.unique
 class YAxisScaling(enum.Enum):
     log = 'logarithmic'
     linear = 'linear'
@@ -119,6 +124,7 @@ Option = namedtuple('Option', ['name', 'default', 'type'])
 class Options(QuerySerializeable):
     OPTIONS_LIST = [
         Option('ystat', YAxisStat.deaths, YAxisStat),
+        Option('xstat', XAxisStat.date, XAxisStat),
         Option('yscale', YAxisScaling.log, YAxisScaling),
         Option('population_adjustment', PopulationAdjustment.per_million,
                PopulationAdjustment),
@@ -394,19 +400,22 @@ class Model(object):
         if entity_type not in self.data_items:
             return []
         dataframe = self.data_items[entity_type].get()
-        dataframe = filter_dataframe(
-            dataframe, self.deaths_per_mill_greater_1(dataframe), **conditions)
+        extra_conditions = []
+        if self.options['xstat'] == XAxisStat.days1DM:
+            extra_conditions.append(self.deaths_per_mill_greater_1(dataframe))
+        dataframe = filter_dataframe(dataframe, *extra_conditions, **conditions)
         return sorted(dataframe.name.unique())
 
     def make_dataset(self):
         to_graph = []
         pop_adj = self.options['population_adjustment']
+        xstat = self.options['xstat']
 
         def get_data_since(data, condition_func):
             condition = condition_func(data)
             since_data = data[condition].reset_index(drop=True)
             day0 = since_data.date.min()
-            since_data['days'] = (since_data.date - day0).apply(lambda x: x.days)
+            since_data['x'] = (since_data.date - day0).apply(lambda x: x.days)
             return since_data
 
         for entity in self.entities.visible_ordered():
@@ -415,7 +424,11 @@ class Model(object):
             except KeyError:
                 continue
             data = entity.filter_dataframe(data)
-            data = get_data_since(data, self.deaths_per_mill_greater_1)
+            if xstat == XAxisStat.days1DM:
+                data = get_data_since(data, self.deaths_per_mill_greater_1)
+            else:
+                data['x'] = data['date']
+                print(data['x'].dtype)
 
             assert len(data) > 0, f"no {entity.__class__.__name__} data for {entity}"
             stat_name = self.options['ystat'].name
@@ -758,6 +771,7 @@ class View(object):
         ystat_select_ui.on_change('value',
                                   lambda attr, old, new: self.model.set_data())
         self._build_enumerated_option('yscale', "Graph scaling:")
+        self._build_enumerated_option('xstat', "X axis:")
         self._build_enumerated_option('population_adjustment',
                                       "Popluation Adjustment:")
         self._build_enumerated_option('daily', "Daily/Cumulative:")
@@ -841,10 +855,14 @@ class View(object):
             y_label += '/million'
         elif pop_adj != PopulationAdjustment.raw:
             raise ValueError(pop_adj)
+        xstat = self.model.options['xstat']
+        x_axis_type = 'auto'
+        if xstat == XAxisStat.date:
+            x_axis_type = 'datetime'
         title = "Covid 19 - {} since 1 death/million".format(y_label)
         plot = bokeh.plotting.figure(title=title,
-           x_axis_label='Days since 1 death/million', y_axis_label=y_label,
-           y_axis_type=self.model.options['yscale'].name)
+            x_axis_label=xstat.value, x_axis_type=x_axis_type,
+            y_axis_label=y_label, y_axis_type=self.model.options['yscale'].name)
         user_agent = self.doc.session_context.request.headers.get('User-Agent')
         is_mobile = is_mobile_agent(user_agent)
         if is_mobile:
@@ -856,7 +874,7 @@ class View(object):
         plot.add_layout(self.updated, "below")
 
         for entity, line_data in data:
-            plot.line(x='days', y='y', source=line_data,
+            plot.line(x='x', y='y', source=line_data,
                       line_width=3, color=self.color(entity),
                       legend_label=str(entity))
 
