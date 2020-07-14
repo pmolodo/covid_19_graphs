@@ -187,11 +187,19 @@ class NYTimesCountyDataRetriever(DataRetriever):
         #counties_data['county_state'] = counties_data['county'].str.cat(counties_data['state'], sep =", ")
         #all_counties = (counties_data['county_state'].unique())
 
-        # Confirm all counties in nytimes data have population data
+        # filter Puerto Rico, because we don't have population data yet...
+        counties_data = counties_data[counties_data.state != 'Puerto Rico']
+
+        # Confirm all remaining counties in nytimes data have population data
         county_pop_data = self.county_pop_cache_item.get()
         counties_fips = set(counties_data.fips.unique())
         county_pop_fips = set(county_pop_data.index.unique())
-        assert len(counties_fips - county_pop_fips) == 0
+        missing_county_fips = counties_fips - county_pop_fips
+        if len(missing_county_fips) > 0:
+            print("County fips missing population data:")
+            for x in missing_county_fips:
+                print(x)
+            raise RuntimeError("were counties that were missing population data")
 
         counties_states = set(counties_data.state.unique())
         assert len(counties_states - constants.US_STATES) == 0
